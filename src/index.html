@@ -38,6 +38,10 @@
       <!-- 顶部栏 -->
       <div class="topbar">
         <span class="app-title">英语表达训练</span>
+        <div class="mode-switch">
+          <button id="mode-a" class="mode-btn active" title="说英语，AI 指出不地道之处">🅰️ 纠错</button>
+          <button id="mode-b" class="mode-btn" title="说中文，AI 给地道英文并跟读">🅱️ 中译英</button>
+        </div>
         <div class="topbar-right">
           <span id="timer" class="timer">00:00</span>
           <button id="btn-prompt-editor" class="btn-icon" title="训练规则">🎯</button>
@@ -91,7 +95,7 @@
 
     <!-- 右栏：实时反馈 -->
     <aside class="panel-right">
-      <div class="panel-title">✏️ 纠错卡片</div>
+      <div class="panel-title" id="right-panel-title">✏️ 纠错卡片</div>
       <div id="feedback-content" class="feedback-content">
         <!-- 实时反馈内容 -->
       </div>

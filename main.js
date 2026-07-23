@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { initASR, feedAudio, stopRecognition } = require('./lib/asr');
 const { loadLexicon, analyzeText } = require('./lib/lexicon');
-const { sendFeedback, sendReport, testConnection, sendCorrection } = require('./lib/ai-feedback');
+const { sendFeedback, sendReport, testConnection, sendCorrection, sendTranslation } = require('./lib/ai-feedback');
 const storage = require('./lib/storage');
 
 // 覆盖应用显示名称（菜单栏、Dock、任务栏、窗口标题）
@@ -347,6 +347,18 @@ ipcMain.handle('get-sentence-correction', async (event, { sentence, existingTags
   try {
     const correction = await sendCorrection(sentence, { ...settings, ...providerConfig }, existingTags || []);
     return { success: true, correction };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Mode B: 中译英学习卡（结构化返回 + 标签）
+ipcMain.handle('get-translation', async (event, { sentence, existingTags }) => {
+  const settings = loadSettings();
+  const providerConfig = getCurrentProviderSettings(settings);
+  try {
+    const card = await sendTranslation(sentence, { ...settings, ...providerConfig }, existingTags || []);
+    return { success: true, card };
   } catch (error) {
     return { success: false, error: error.message };
   }

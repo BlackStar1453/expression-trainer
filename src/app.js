@@ -13,9 +13,13 @@ class ExpressionTrainer {
     this.stats = { fillers: 0, hedges: 0, vagueWords: 0, totalWords: 0, duration: 0 };
     this.lastFeedbackText = '';
     this.lastReport = '';
+    // 模式：'A' 说英语纠错 | 'B' 说中文学地道英文
+    this.mode = 'A';
     // Mode A: 本场累积的纠错卡片 + 生长式标签集（供报告与存储用）
     this.corrections = [];
     this.sessionTags = new Set();
+    // Mode B: 本场累积的中译英学习卡片
+    this.bcards = [];
     // 历史标签注册表（跨会话复用，注入纠错 prompt 让 AI 优先复用旧标签）
     this.registryTags = [];
     if (window.api.getTags) {
@@ -53,6 +57,10 @@ class ExpressionTrainer {
     this.statHedges = document.getElementById('stat-hedges');
     this.statVague = document.getElementById('stat-vague');
     this.statDensity = document.getElementById('stat-density');
+    this.modeABtn = document.getElementById('mode-a');
+    this.modeBBtn = document.getElementById('mode-b');
+    this.rightPanelTitle = document.getElementById('right-panel-title');
+    this.startLabel = this.btnStart.querySelector('.btn-label');
   }
 
   bindEvents() {
@@ -77,6 +85,25 @@ class ExpressionTrainer {
     this.btnCopyText.addEventListener('click', () => this.copyOriginalText());
     this.btnSaveText.addEventListener('click', () => this.saveOriginalText());
     this.btnClear.addEventListener('click', () => this.clearAll());
+    this.modeABtn.addEventListener('click', () => this.switchMode('A'));
+    this.modeBBtn.addEventListener('click', () => this.switchMode('B'));
+  }
+
+  // ===== 模式切换 =====
+
+  switchMode(mode) {
+    if (mode === this.mode) return;
+    if (this.isRecording) {
+      this.showError('录制中不能切换模式，请先结束');
+      return;
+    }
+    this.mode = mode;
+    this.modeABtn.classList.toggle('active', mode === 'A');
+    this.modeBBtn.classList.toggle('active', mode === 'B');
+    this.rightPanelTitle.textContent = mode === 'A' ? '✏️ 纠错卡片' : '📖 学习卡片';
+    if (this.startLabel) this.startLabel.textContent = mode === 'A' ? '开始录制' : '说中文';
+    // 切模式清空当前会话内容
+    this.clearAll();
   }
 
   // ===== 录制控制 =====
@@ -164,11 +191,14 @@ class ExpressionTrainer {
     this.btnStart.classList.remove('hidden');
     this.timer.classList.remove('active');
 
-    if (this.fullText.trim()) {
-      this.btnReport.classList.remove('hidden');
-      this.btnCopyText.classList.remove('hidden');
-      this.btnSaveText.classList.remove('hidden');
+    const hasContent = this.fullText.trim() || this.bcards.length > 0;
+    if (hasContent) {
       this.btnClear.classList.remove('hidden');
+      if (this.mode === 'A') {
+        this.btnReport.classList.remove('hidden');
+        this.btnCopyText.classList.remove('hidden');
+        this.btnSaveText.classList.remove('hidden');
+      }
       this.saveCurrentSession();   // 自动存档为 JSON + MD + 更新索引/标签
     }
   }
@@ -178,10 +208,14 @@ class ExpressionTrainer {
   handleASRResult({ text, isFinal }) {
     if (isFinal) {
       this.sentences.push(text);
-      // 英文按空格拼接，避免句子粘连
-      this.fullText += (this.fullText ? ' ' : '') + text;
-      this.analyzeCurrentSentence(text);     // 本地词库层：驱动统计 + 高亮
-      this.requestCorrection(text);          // AI 层：按句纠错卡片
+      if (this.mode === 'A') {
+        // 英文按空格拼接，避免句子粘连
+        this.fullText += (this.fullText ? ' ' : '') + text;
+        this.analyzeCurrentSentence(text);   // 本地词库层：驱动统计 + 高亮
+        this.requestCorrection(text);        // AI 层：按句纠错卡片
+      } else {
+        this.handleModeBSentence(text);      // Mode B：说中文 → 翻译/跟读
+      }
     }
     this.renderSubtitle(text, isFinal);
   }
@@ -308,6 +342,56 @@ class ExpressionTrainer {
       .replace(/>/g, '&gt;');
   }
 
+  // ===== Mode B：说中文 → 地道英文学习卡 =====
+
+  handleModeBSentence(sentence) {
+    // 统计词数（供存档）
+    this.stats.totalWords += sentence.trim().length;
+    this.updateStatsDisplay();
+    this.requestTranslation(sentence);
+  }
+
+  async requestTranslation(sentence) {
+    if (!sentence || !sentence.trim()) return;
+    const existingTags = [...new Set([...this.registryTags, ...this.sessionTags])];
+    const result = await window.api.getTranslation(sentence, existingTags);
+    if (!result || !result.success || !result.card) return;
+
+    const card = result.card;
+    (card.tags || []).forEach(t => this.sessionTags.add(t));
+
+    const entry = {
+      zh: card.zh || sentence,
+      en: card.en || '',
+      note: card.note || '',
+      tags: card.tags || [],
+      shadow: null,          // 跟读结果（slice 6 填充）
+      timestamp: Date.now()
+    };
+    this.bcards.push(entry);
+    this.renderLearningCard(entry);
+  }
+
+  renderLearningCard(entry) {
+    const card = document.createElement('div');
+    card.className = 'learning-card';
+
+    const tagsHtml = (entry.tags || [])
+      .map(t => `<span class="tag-chip">${this.escapeHtml(t)}</span>`)
+      .join('');
+
+    card.innerHTML = `
+      <div class="lc-zh">${this.escapeHtml(entry.zh)}</div>
+      <div class="lc-en">${this.escapeHtml(entry.en)}</div>
+      ${entry.note ? `<div class="lc-note">${this.escapeHtml(entry.note)}</div>` : ''}
+      ${tagsHtml ? `<div class="cc-tags">${tagsHtml}</div>` : ''}
+    `;
+
+    // 关联卡片数据，供跟读功能定位（slice 6）
+    entry._el = card;
+    this.feedbackContent.insertBefore(card, this.feedbackContent.firstChild);
+  }
+
   updateStatsDisplay() {
     this.statFillers.textContent = this.stats.fillers;
     this.statHedges.textContent = this.stats.hedges;
@@ -362,21 +446,34 @@ class ExpressionTrainer {
   // ===== 学习数据存档 =====
 
   async saveCurrentSession() {
-    if (!this.fullText.trim() && this.corrections.length === 0) return;
-    const session = {
-      mode: 'A',
-      fullText: this.fullText,
-      durationSec: this.stats.duration || 0,
-      totalWords: this.stats.totalWords || 0,
-      fillers: this.stats.fillers || 0,
-      hedges: this.stats.hedges || 0,
-      vagueWords: this.stats.vagueWords || 0,
-      corrections: this.corrections
-    };
+    let session;
+    if (this.mode === 'B') {
+      if (this.bcards.length === 0) return;
+      session = {
+        mode: 'B',
+        durationSec: this.stats.duration || 0,
+        totalWords: this.stats.totalWords || 0,
+        // 剥离 DOM 引用后存储
+        cards: this.bcards.map(c => ({ zh: c.zh, en: c.en, note: c.note, tags: c.tags, shadow: c.shadow }))
+      };
+    } else {
+      if (!this.fullText.trim() && this.corrections.length === 0) return;
+      session = {
+        mode: 'A',
+        fullText: this.fullText,
+        durationSec: this.stats.duration || 0,
+        totalWords: this.stats.totalWords || 0,
+        fillers: this.stats.fillers || 0,
+        hedges: this.stats.hedges || 0,
+        vagueWords: this.stats.vagueWords || 0,
+        corrections: this.corrections
+      };
+    }
     try {
       await window.api.saveSession(session);
-      // 新标签即时并入本地注册表，本会话后续纠错即可复用
-      this.corrections.forEach(c => (c.tags || []).forEach(t => {
+      // 新标签即时并入本地注册表，本会话后续即可复用
+      const items = this.mode === 'B' ? this.bcards : this.corrections;
+      items.forEach(c => (c.tags || []).forEach(t => {
         if (!this.registryTags.includes(t)) this.registryTags.push(t);
       }));
     } catch (e) {
@@ -462,6 +559,7 @@ class ExpressionTrainer {
   resetStats() {
     this.stats = { fillers: 0, hedges: 0, vagueWords: 0, totalWords: 0, duration: 0 };
     this.corrections = [];
+    this.bcards = [];
     this.sessionTags = new Set();
     this.updateStatsDisplay();
     this.feedbackContent.innerHTML = '';
