@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // AI反馈
   getRealtimeFeedback: (text) => ipcRenderer.invoke('get-realtime-feedback', text),
+  getSentenceCorrection: (sentence, existingTags) => ipcRenderer.invoke('get-sentence-correction', { sentence, existingTags }),
   getFinalReport: (data) => ipcRenderer.invoke('get-final-report', data),
   testLLMConnection: (settings) => ipcRenderer.invoke('test-llm-connection', settings),
 

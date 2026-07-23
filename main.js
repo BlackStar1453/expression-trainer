@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { initASR, feedAudio, stopRecognition } = require('./lib/asr');
 const { loadLexicon, analyzeText } = require('./lib/lexicon');
-const { sendFeedback, sendReport, testConnection } = require('./lib/ai-feedback');
+const { sendFeedback, sendReport, testConnection, sendCorrection } = require('./lib/ai-feedback');
 
 // 覆盖应用显示名称（菜单栏、Dock、任务栏、窗口标题）
 app.setName('宇宙无敌表达训练');
@@ -317,6 +317,18 @@ ipcMain.handle('get-realtime-feedback', async (event, text) => {
   try {
     const feedback = await sendFeedback(text, { ...settings, ...providerConfig }, customPrompt);
     return { success: true, feedback };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Mode A: 按句纠错（结构化返回 + 标签）
+ipcMain.handle('get-sentence-correction', async (event, { sentence, existingTags }) => {
+  const settings = loadSettings();
+  const providerConfig = getCurrentProviderSettings(settings);
+  try {
+    const correction = await sendCorrection(sentence, { ...settings, ...providerConfig }, existingTags || []);
+    return { success: true, correction };
   } catch (error) {
     return { success: false, error: error.message };
   }

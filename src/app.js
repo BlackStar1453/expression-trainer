@@ -13,6 +13,9 @@ class ExpressionTrainer {
     this.stats = { fillers: 0, hedges: 0, vagueWords: 0, totalWords: 0, duration: 0 };
     this.lastFeedbackText = '';
     this.lastReport = '';
+    // Mode A: 本场累积的纠错卡片 + 生长式标签集（供报告与存储用）
+    this.corrections = [];
+    this.sessionTags = new Set();
 
     this.initElements();
     this.bindEvents();
@@ -169,13 +172,10 @@ class ExpressionTrainer {
   handleASRResult({ text, isFinal }) {
     if (isFinal) {
       this.sentences.push(text);
-      this.fullText += text;
-      this.analyzeCurrentSentence(text);
-
-      // 每30字触发一次AI反馈（语境化精准词建议）
-      if (this.fullText.length - this.lastFeedbackText.length >= 30) {
-        this.requestRealtimeFeedback();
-      }
+      // 英文按空格拼接，避免句子粘连
+      this.fullText += (this.fullText ? ' ' : '') + text;
+      this.analyzeCurrentSentence(text);     // 本地词库层：驱动统计 + 高亮
+      this.requestCorrection(text);          // AI 层：按句纠错卡片
     }
     this.renderSubtitle(text, isFinal);
   }
@@ -226,6 +226,7 @@ class ExpressionTrainer {
   // ===== 分析 =====
 
   async analyzeCurrentSentence(text) {
+    // 本地词库层：只更新左栏统计（右栏保留给 AI 纠错卡，字幕区已有实时高亮）
     const analysis = await window.api.analyzeText(text);
     if (analysis) {
       this.stats.fillers += analysis.fillers.length;
@@ -233,24 +234,59 @@ class ExpressionTrainer {
       this.stats.vagueWords += analysis.vagueWords.length;
       this.stats.totalWords += analysis.totalWords;
       this.updateStatsDisplay();
-      // 碰到笼统词 → 立刻在反馈栏弹出替换建议
-      if (analysis.vagueWords && analysis.vagueWords.length > 0) {
-        analysis.vagueWords.forEach(item => {
-          const alts = item.alternatives.slice(0, 3).join(' / ');
-          this.addFeedbackItem(`「${item.word}」→ ${alts}`, 'vague');
-        });
-      }
-      // 碰到填充词 → 弹提醒
-      if (analysis.fillers && analysis.fillers.length >= 2) {
-        const uniqueFillers = [...new Set(analysis.fillers.map(f => f.word))].slice(0, 3);
-        this.addFeedbackItem(`填充词：${uniqueFillers.join('、')}——试试停顿`, 'filler');
-      }
-      // 碰到犹豫词 → 弹提醒
-      if (analysis.hedges && analysis.hedges.length >= 1) {
-        const uniqueHedges = [...new Set(analysis.hedges.map(h => h.word))].slice(0, 2);
-        this.addFeedbackItem(`「${uniqueHedges.join('」「')}」→ 直接说`, 'hedge');
-      }
     }
+  }
+
+  // ===== Mode A：按句 AI 纠错卡片 =====
+
+  async requestCorrection(sentence) {
+    if (!sentence || !sentence.trim()) return;
+    const result = await window.api.getSentenceCorrection(sentence, [...this.sessionTags]);
+    if (!result || !result.success) return;
+
+    const c = result.correction;
+    if (!c || !c.hasError) return;   // 整句地道 → 不出卡片，不刷屏
+
+    // 记录标签（生长式：新标签并入本场集合）
+    (c.tags || []).forEach(t => this.sessionTags.add(t));
+
+    const entry = {
+      original: c.original || sentence,
+      corrected: c.corrected || '',
+      explanation: c.explanation || '',
+      tags: c.tags || [],
+      timestamp: Date.now()
+    };
+    this.corrections.push(entry);
+    this.renderCorrectionCard(entry);
+  }
+
+  renderCorrectionCard(entry) {
+    const card = document.createElement('div');
+    card.className = 'correction-card';
+
+    const tagsHtml = (entry.tags || [])
+      .map(t => `<span class="tag-chip">${this.escapeHtml(t)}</span>`)
+      .join('');
+
+    card.innerHTML = `
+      <div class="cc-original">${this.escapeHtml(entry.original)}</div>
+      <div class="cc-corrected">${this.escapeHtml(entry.corrected)}</div>
+      ${entry.explanation ? `<div class="cc-explain">${this.escapeHtml(entry.explanation)}</div>` : ''}
+      ${tagsHtml ? `<div class="cc-tags">${tagsHtml}</div>` : ''}
+    `;
+
+    this.feedbackContent.insertBefore(card, this.feedbackContent.firstChild);
+    while (this.feedbackContent.children.length > 20) {
+      this.feedbackContent.removeChild(this.feedbackContent.lastChild);
+    }
+  }
+
+  escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
   }
 
   updateStatsDisplay() {
