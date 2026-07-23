@@ -18,8 +18,10 @@ class ExpressionTrainer {
     // Mode A: 本场累积的纠错卡片 + 生长式标签集（供报告与存储用）
     this.corrections = [];
     this.sessionTags = new Set();
-    // Mode B: 本场累积的中译英学习卡片
+    // Mode B: 本场累积的中译英学习卡片 + 跟读状态
     this.bcards = [];
+    this.shadowingEntry = null;   // 正在跟读的卡片
+    this.shadowBtn = null;        // 对应的跟读按钮
     // 历史标签注册表（跨会话复用，注入纠错 prompt 让 AI 优先复用旧标签）
     this.registryTags = [];
     if (window.api.getTags) {
@@ -172,6 +174,7 @@ class ExpressionTrainer {
   }
 
   async stopRecording() {
+    this.disarmShadow();
     if (this.audioProcessor) { this.audioProcessor.disconnect(); this.audioProcessor = null; }
     if (this.audioContext) { this.audioContext.close(); this.audioContext = null; }
     if (this.mediaStream) { this.mediaStream.getTracks().forEach(t => t.stop()); this.mediaStream = null; }
@@ -345,7 +348,12 @@ class ExpressionTrainer {
   // ===== Mode B：说中文 → 地道英文学习卡 =====
 
   handleModeBSentence(sentence) {
-    // 统计词数（供存档）
+    // 若已武装跟读，这一句视为对目标英文的朗读
+    if (this.shadowingEntry) {
+      this.evaluateShadow(sentence);
+      return;
+    }
+    // 否则视为新的一句中文 → 翻译成学习卡
     this.stats.totalWords += sentence.trim().length;
     this.updateStatsDisplay();
     this.requestTranslation(sentence);
@@ -385,11 +393,71 @@ class ExpressionTrainer {
       <div class="lc-en">${this.escapeHtml(entry.en)}</div>
       ${entry.note ? `<div class="lc-note">${this.escapeHtml(entry.note)}</div>` : ''}
       ${tagsHtml ? `<div class="cc-tags">${tagsHtml}</div>` : ''}
+      <div class="lc-shadow">
+        <div class="lc-diff"></div>
+        <div class="lc-shadow-actions">
+          <button class="btn-shadow">🎤 跟读</button>
+          <span class="lc-score"></span>
+        </div>
+      </div>
     `;
 
-    // 关联卡片数据，供跟读功能定位（slice 6）
     entry._el = card;
+    const btn = card.querySelector('.btn-shadow');
+    btn.addEventListener('click', () => this.armShadow(entry, btn));
     this.feedbackContent.insertBefore(card, this.feedbackContent.firstChild);
+  }
+
+  // ===== 跟读环 =====
+
+  armShadow(entry, btn) {
+    if (!this.isRecording) { this.showError('请先开始录制，再点跟读'); return; }
+    // 解除上一个武装
+    if (this.shadowBtn && this.shadowBtn !== btn) {
+      this.shadowBtn.classList.remove('armed');
+      this.shadowBtn.textContent = this.shadowBtn.dataset.done ? '🔁 再读一次' : '🎤 跟读';
+    }
+    this.shadowingEntry = entry;
+    this.shadowBtn = btn;
+    btn.classList.add('armed');
+    btn.textContent = '🎙️ 请读出英文…';
+  }
+
+  async evaluateShadow(spoken) {
+    const entry = this.shadowingEntry;
+    const btn = this.shadowBtn;
+    const card = entry._el;
+    // 先解除武装，避免下一句被再次当作跟读
+    this.shadowingEntry = null;
+    this.shadowBtn = null;
+
+    const diff = await window.api.diffWords(entry.en, spoken);
+    const prevBest = (entry.shadow && entry.shadow.bestScore) || 0;
+    entry.shadow = {
+      bestScore: Math.max(prevBest, diff.score),
+      lastScore: diff.score,
+      attempts: ((entry.shadow && entry.shadow.attempts) || 0) + 1
+    };
+
+    if (card) {
+      const diffEl = card.querySelector('.lc-diff');
+      diffEl.innerHTML = diff.tokens
+        .map(t => `<span class="${t.ok ? 'ok' : 'miss'}">${this.escapeHtml(t.word)}</span>`)
+        .join(' ');
+      const scoreEl = card.querySelector('.lc-score');
+      scoreEl.textContent = `匹配度 ${diff.score}%（第 ${entry.shadow.attempts} 次，最佳 ${entry.shadow.bestScore}%）`;
+      scoreEl.style.color = diff.score >= 80 ? '#69db7c' : diff.score >= 50 ? '#ffd43b' : '#ff6b6b';
+      if (btn) { btn.classList.remove('armed'); btn.textContent = '🔁 再读一次'; btn.dataset.done = '1'; }
+    }
+  }
+
+  disarmShadow() {
+    if (this.shadowBtn) {
+      this.shadowBtn.classList.remove('armed');
+      this.shadowBtn.textContent = this.shadowBtn.dataset.done ? '🔁 再读一次' : '🎤 跟读';
+    }
+    this.shadowingEntry = null;
+    this.shadowBtn = null;
   }
 
   updateStatsDisplay() {
@@ -561,6 +629,8 @@ class ExpressionTrainer {
     this.corrections = [];
     this.bcards = [];
     this.sessionTags = new Set();
+    this.shadowingEntry = null;
+    this.shadowBtn = null;
     this.updateStatsDisplay();
     this.feedbackContent.innerHTML = '';
   }

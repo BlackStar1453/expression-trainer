@@ -39,4 +39,7 @@ contextBridge.exposeInMainWorld('api', {
   // 学习数据存储
   saveSession: (session) => ipcRenderer.invoke('save-session', session),
   getTags: () => ipcRenderer.invoke('get-tags'),
+
+  // Mode B 跟读词级 diff
+  diffWords: (target, spoken) => ipcRenderer.invoke('diff-words', { target, spoken }),
 });

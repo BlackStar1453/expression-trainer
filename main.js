@@ -5,6 +5,7 @@ const { initASR, feedAudio, stopRecognition } = require('./lib/asr');
 const { loadLexicon, analyzeText } = require('./lib/lexicon');
 const { sendFeedback, sendReport, testConnection, sendCorrection, sendTranslation } = require('./lib/ai-feedback');
 const storage = require('./lib/storage');
+const { diffWords } = require('./lib/diff');
 
 // 覆盖应用显示名称（菜单栏、Dock、任务栏、窗口标题）
 app.setName('英语表达训练');
@@ -338,6 +339,11 @@ ipcMain.handle('save-session', (event, session) => {
 
 ipcMain.handle('get-tags', () => {
   return storage.loadTags();
+});
+
+// Mode B 跟读：本地词级 diff（离线，不调 AI）
+ipcMain.handle('diff-words', (event, { target, spoken }) => {
+  return diffWords(target, spoken);
 });
 
 // Mode A: 按句纠错（结构化返回 + 标签）
