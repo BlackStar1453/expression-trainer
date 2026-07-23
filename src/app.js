@@ -470,47 +470,6 @@ class ExpressionTrainer {
     }
   }
 
-  // ===== 实时反馈 =====
-
-  async requestRealtimeFeedback() {
-    this.lastFeedbackText = this.fullText;
-    const result = await window.api.getRealtimeFeedback(this.fullText);
-    if (result.success && result.feedback) {
-      const lines = result.feedback.split('\n').filter(l => l.trim());
-      lines.forEach(line => {
-        const type = this.classifyFeedback(line.trim());
-        this.addFeedbackItem(line.trim(), type);
-      });
-    }
-  }
-
-  classifyFeedback(text) {
-    if (text === '✓' || text.includes('✓')) return 'good';
-    // 填充词相关
-    const fillerKeywords = ['嗯','啊','呃','那个','就是','然后','这个','对吧','是吧','反正','基本上','所以说'];
-    if (fillerKeywords.some(w => text.includes(`「${w}」`))) return 'filler';
-    // 犹豫词相关
-    const hedgeKeywords = ['可能','也许','大概','应该','我觉得','好像','似乎','感觉','或许'];
-    if (hedgeKeywords.some(w => text.includes(`「${w}」`))) return 'hedge';
-    // 其他精准词替换
-    if (text.includes('→')) return 'vague';
-    return 'ai';
-  }
-
-  addFeedbackItem(text, type = 'ai') {
-    // 去重：如果前3条已经有相同内容，跳过
-    const existing = Array.from(this.feedbackContent.children).slice(0, 3);
-    if (existing.some(el => el.textContent === text)) return;
-
-    const item = document.createElement('div');
-    item.className = `feedback-item type-${type}`;
-    item.textContent = text;
-    this.feedbackContent.insertBefore(item, this.feedbackContent.firstChild);
-    while (this.feedbackContent.children.length > 12) {
-      this.feedbackContent.removeChild(this.feedbackContent.lastChild);
-    }
-  }
-
   // ===== 学习数据存档 =====
 
   async saveCurrentSession() {

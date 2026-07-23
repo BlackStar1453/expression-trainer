@@ -1,20 +1,29 @@
-# 🚀 宇宙无敌表达训练系统 - 本地桌面版
+# 🗣️ 英语表达训练 · 本地桌面版
 
-> 👉 **在线版已上线：[exprtrain.online](https://exprtrain.online)**，无需安装，打开浏览器即用。支持中英双语。
+> Fork 自 [fxy2311-youyou/expression-trainer](https://github.com/fxy2311-youyou/expression-trainer)（原为中文口语表达训练系统），已改造为**帮助学习英语表达**的桌面应用。
 
-一个帮你训练口语表达精准度的本地桌面应用。实时语音识别 → 词库匹配 → AI反馈，全程离线+本地处理。
+一个帮你练英语口语表达的本地 Electron 应用。**一个壳，两种模式**，全程本地语音识别 + AI 分析：
+
+| 模式 | 你做什么 | AI 做什么 |
+|------|---------|-----------|
+| 🅰️ **纠错** | 说**英语** | 按句指出哪里不正确 / 不地道（语法、搭配、Chinglish），给地道改写 |
+| 🅱️ **中译英** | 说**中文** | 翻成地道英文 + 讲解，然后你**跟读**，本地词级比对给匹配度 |
+
+界面中文，内容英文；暂不做发音评分。
 
 ## 功能
 
-- 🎤 **实时语音识别**：基于 Sherpa-ONNX，完全离线，中文优化
-- 📝 **全屏字幕显示**：黑底大字，实时显示你说的每一句话
-- 🔍 **词库分析**：自动检测填充词、犹豫词、笼统词，给出精准替代
-- 🤖 **AI反馈**：支持 Groq/OpenAI/DeepSeek/Ollama 多后端
-- 📊 **分析报告**：6维度深度分析（逻辑/直接性/填充词/密度/词汇/亮点）
+- 🎤 **实时语音识别**：基于 Sherpa-ONNX 中英双语模型，完全离线（Mode A 识别英语、Mode B 识别中文，同一模型）
+- ✏️ **Mode A 按句纠错卡**：原句 → 地道改写 → 中文说明 → 问题标签
+- 📊 **六维结课报告**：语法准确性 / 地道度 / 填充词 / 词汇丰富度 / 句式多样性 / 亮点
+- 📖 **Mode B 学习卡 + 跟读环**：中文原句 → 地道英文 → 讲解 → 🎤 跟读 → 词级 diff（对绿/漏错红）+ 匹配度，自定节奏 🔁 再读一次
+- 🏷️ **生长式标签**：AI 打标时优先复用历史标签，跨会话聚合
+- 💾 **学习语料库**：每场自动存 `JSON + Markdown 镜像 + INDEX.md`，MD 供 AI 复习消费
+- 🤖 **多 AI 后端**：DeepSeek / OpenAI / Ollama / 自定义 OpenAI 兼容接口
 
 ## 安装
 
-### 1. 克隆项目 & 安装依赖
+### 1. 克隆 & 安装依赖
 
 ```bash
 cd expression-trainer
@@ -23,125 +32,67 @@ npm install
 
 ### 2. 下载语音识别模型
 
-需要下载 Sherpa-ONNX 的 streaming paraformer 中英双语模型：
+需要 Sherpa-ONNX 的 streaming paraformer 中英双语模型：
 
 ```bash
 cd models
-
-# 方法一：使用 wget
 wget https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-paraformer-bilingual-zh-en.tar.bz2
 tar xvf sherpa-onnx-streaming-paraformer-bilingual-zh-en.tar.bz2
-
-# 方法二：使用 huggingface
-# https://huggingface.co/csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en
 ```
 
-下载后 `models/` 目录应包含：
+下载后 `models/` 应包含：
+
 ```
-models/
-└── sherpa-onnx-streaming-paraformer-bilingual-zh-en/
-    ├── encoder.int8.onnx
-    ├── decoder.int8.onnx
-    └── tokens.txt
+models/sherpa-onnx-streaming-paraformer-bilingual-zh-en/
+├── encoder.int8.onnx
+├── decoder.int8.onnx
+└── tokens.txt
 ```
-### 3. 启动应用
+
+### 3. 启动
 
 ```bash
-npm start
+npm start          # 或 npm run dev（带 DevTools）
 ```
 
 ### 4. 配置 AI 后端
 
-启动后点击右上角 ⚙️ 进入设置页面。
+点右上角 ⚙️ 进设置，填 DeepSeek / OpenAI 的 API Key，或用本地 Ollama。推荐 **DeepSeek**：质量高、成本极低。
 
-推荐配置：
+## 使用
 
-| 后端 | 费用 | 速度 | 获取方式 |
-|------|------|------|----------|
-| DeepSeek | 极低 | 快 | [platform.deepseek.com](https://platform.deepseek.com) |
-| OpenAI | 中等 | 快 | [platform.openai.com](https://platform.openai.com) |
-| Ollama | 免费 | 取决于硬件 | [ollama.com](https://ollama.com) 本地运行 |
+**Mode A（纠错）**：点「🅰️ 纠错」→ 开始录制 → 说英语。字幕区实时高亮填充词/含糊词；右栏每说完一句弹一张纠错卡（无问题则不弹）。结束后点「生成报告」出六维报告。
 
-**推荐 deepseek**：生成报告质量高，且成本极低。
+**Mode B（中译英）**：点「🅱️ 中译英」→ 开始录制 → 说一句中文 → 右栏出学习卡（中文→地道英文→讲解）→ 点卡片上的「🎤 跟读」→ 把英文读出来 → 看词级匹配结果，想再练点「🔁 再读一次」，想继续直接说下一句中文。
 
-## 使用说明
-
-1. **点击「开始录制」** → 对着麦克风说话
-2. **实时字幕**会在屏幕中央显示你说的内容
-3. **左侧面板**实时统计填充词/犹豫词/笼统词
-4. **右侧面板**每50字会给出AI实时反馈
-5. **说完后点击「结束」** → 可以点「生成报告」获取完整分析
-
-## 字幕颜色含义
-
-| 颜色 | 含义 |
-|------|------|
-| 🔴 红色波浪下划线 | 填充词（嗯、啊、那个、然后…） |
-| 🟠 橙色 | 犹豫词（可能、也许、我觉得…） |
-| 🟡 黄色虚线 | 笼统词（有精准替代建议） |
-| 🟢 绿色 | 有力表达（好句子！） |
+所有卡片会自动存进 `userData/learning-data/`（JSON + MD + INDEX），方便日后复习或喂给 AI。
 
 ## 技术架构
 
 ```
-┌─────────────────────────────────────────┐
-│ Electron 主进程                          │
-│  ├── Sherpa-ONNX (离线语音识别)          │
-│  ├── 词库匹配 (emotion-lexicon.json)     │
-│  └── AI反馈 (多后端 HTTP API)            │
-├─────────────────────────────────────────┤
-│ 渲染进程 (Chromium)                      │
-│  ├── 全屏字幕显示                        │
-│  ├── 实时统计面板                        │
-│  └── 分析报告弹窗                        │
-└─────────────────────────────────────────┘
+┌─────────────────────────────────────────────┐
+│ Electron 主进程                               │
+│  ├── lib/asr.js       Sherpa-ONNX 离线识别    │
+│  ├── lib/lexicon.js   英文填充/含糊词本地扫描 │
+│  ├── lib/ai-feedback  纠错 / 翻译 / 报告 (多后端)│
+│  ├── lib/prompts.js   各场景 prompt 模板       │
+│  ├── lib/diff.js      跟读词级 LCS diff        │
+│  └── lib/storage.js   学习语料库 (JSON+MD+标签)│
+├─────────────────────────────────────────────┤
+│ 渲染进程 (src/app.js)                          │
+│  ├── 模式切换 · 全屏字幕 · 高亮                 │
+│  ├── Mode A 纠错卡 · 六维报告                   │
+│  └── Mode B 学习卡 · 跟读环                     │
+└─────────────────────────────────────────────┘
 ```
 
-## 词库说明
-
-`data/emotion-lexicon.json` 基于大连理工情感词库7大类结构，包含：
-
-- **130+ 情绪词**：分类（喜怒哀惧恶惊）+ 强度（1-9）
-- **笼统词→精准词映射**：25组高频替代建议
-- **填充词表**：24个常见口头禅
-- **犹豫词表**：19个弱化表达
-- **程度词梯度**：弱→中→强→极 四级
-- **画面化描述**：10组「抽象→具象」转换
-- **犹豫→直接转换**：8组对照示例
-
-## 开发
-
-```bash
-# 开发模式（带DevTools）
-npm run dev
-
-# 目录结构
-├── main.js              # Electron主进程
-├── preload.js           # preload脚本
-├── src/
-│   ├── index.html       # 主界面
-│   ├── settings.html    # 设置页
-│   ├── styles.css       # 样式
-│   ├── app.js           # 前端逻辑
-│   └── settings.js      # 设置逻辑
-├── lib/
-│   ├── asr.js           # 语音识别
-│   ├── lexicon.js       # 词库匹配
-│   ├── ai-feedback.js   # AI反馈
-│   └── prompts.js       # Prompt模板
-├── data/
-│   └── emotion-lexicon.json
-└── models/              # Sherpa-ONNX模型（需下载）
-```
+术语表与设计决策见 [`CONTEXT.md`](CONTEXT.md)。
 
 ## 系统要求
 
-- macOS 12+ / Windows 10+ / Linux
-- Node.js 18+
-- 麦克风权限
-- （可选）网络连接（用于AI反馈，词库分析可离线）
+- macOS 12+ / Windows 10+ / Linux ｜ Node.js 18+ ｜ 麦克风权限
+- 词库分析 + 跟读 diff 可离线；纠错 / 翻译 / 报告需 AI 后端（可用本地 Ollama 彻底离线）
 
 ## License
 
 MIT
-
