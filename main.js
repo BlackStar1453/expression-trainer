@@ -334,12 +334,12 @@ ipcMain.handle('get-sentence-correction', async (event, { sentence, existingTags
   }
 });
 
-ipcMain.handle('get-final-report', async (event, { fullText, stats }) => {
+ipcMain.handle('get-final-report', async (event, { fullText, stats, corrections }) => {
   const settings = loadSettings();
   const providerConfig = getCurrentProviderSettings(settings);
   const customPrompt = loadCustomPrompt();
   try {
-    const report = await sendReport(fullText, stats, { ...settings, ...providerConfig }, customPrompt);
+    const report = await sendReport(fullText, stats, { ...settings, ...providerConfig }, customPrompt, corrections || []);
     return { success: true, report };
   } catch (error) {
     return { success: false, error: error.message };

@@ -348,7 +348,8 @@ class ExpressionTrainer {
 
     const result = await window.api.getFinalReport({
       fullText: this.fullText,
-      stats: this.stats
+      stats: this.stats,
+      corrections: this.corrections
     });
 
     if (result.success) {
