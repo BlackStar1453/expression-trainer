@@ -1,4 +1,4 @@
-// 宇宙无敌表达训练系统 V2
+// 英语表达训练 · Mode A (speak English → local highlight + AI corrections)
 
 class ExpressionTrainer {
   constructor() {
@@ -16,6 +16,11 @@ class ExpressionTrainer {
     // Mode A: 本场累积的纠错卡片 + 生长式标签集（供报告与存储用）
     this.corrections = [];
     this.sessionTags = new Set();
+    // 历史标签注册表（跨会话复用，注入纠错 prompt 让 AI 优先复用旧标签）
+    this.registryTags = [];
+    if (window.api.getTags) {
+      window.api.getTags().then(tags => { this.registryTags = tags || []; });
+    }
 
     this.initElements();
     this.bindEvents();
@@ -164,6 +169,7 @@ class ExpressionTrainer {
       this.btnCopyText.classList.remove('hidden');
       this.btnSaveText.classList.remove('hidden');
       this.btnClear.classList.remove('hidden');
+      this.saveCurrentSession();   // 自动存档为 JSON + MD + 更新索引/标签
     }
   }
 
@@ -211,15 +217,27 @@ class ExpressionTrainer {
   }
 
   highlightText(text) {
+    // NOTE(tech-debt): these word lists are duplicated from data/english-lexicon.json.
+    // Should be unified via an IPC (get-lexicon) so highlighting & stats share one source.
+    // Known limitation: pure string matching flags "like"/"actually" even when used
+    // legitimately (verb / adverb). Mode A's AI layer makes the precise call.
     let result = text;
-    const vagueWords = ['开心','难过','害怕','生气','不舒服','很好','很多','很快','很大','很小','好看','不好','喜欢','讨厌','觉得','想想'];
-    vagueWords.forEach(w => {
-      result = result.replace(new RegExp(w, 'g'), `<span class="vague">${w}</span>`);
-    });
-    const fillerPatterns = /(嗯|啊|呃|额|那个|就是|然后|这个|对吧|是吧|反正|基本上)/g;
-    result = result.replace(fillerPatterns, '<span class="filler">$1</span>');
-    const hedgePatterns = /(可能|也许|大概|应该|我觉得|好像|似乎|或许|不一定|差不多|感觉)/g;
-    result = result.replace(hedgePatterns, '<span class="hedge">$1</span>');
+
+    // Vague (green) — multi-word phrases first so "very good" isn't split into "good"
+    const vagueWords = ['very good','a lot','good','bad','nice','big','small','happy','sad','important','interesting','beautiful','difficult','easy'];
+    const vagueRe = new RegExp(`(?<![A-Za-z])(${vagueWords.join('|')})(?![A-Za-z])`, 'gi');
+    result = result.replace(vagueRe, '<span class="vague">$1</span>');
+
+    // Fillers (orange)
+    const fillers = ['you know','i mean','kind of','sort of','um','uh','er','erm','hmm','like','basically','actually','literally'];
+    const fillerRe = new RegExp(`(?<![A-Za-z])(${fillers.join('|')})(?![A-Za-z])`, 'gi');
+    result = result.replace(fillerRe, '<span class="filler">$1</span>');
+
+    // Hedges (yellow)
+    const hedges = ['i think','i guess','i suppose','i feel like','more or less','maybe','perhaps','probably','possibly','somewhat','not sure','might be'];
+    const hedgeRe = new RegExp(`(?<![A-Za-z])(${hedges.join('|')})(?![A-Za-z])`, 'gi');
+    result = result.replace(hedgeRe, '<span class="hedge">$1</span>');
+
     return result;
   }
 
@@ -241,7 +259,8 @@ class ExpressionTrainer {
 
   async requestCorrection(sentence) {
     if (!sentence || !sentence.trim()) return;
-    const result = await window.api.getSentenceCorrection(sentence, [...this.sessionTags]);
+    const existingTags = [...new Set([...this.registryTags, ...this.sessionTags])];
+    const result = await window.api.getSentenceCorrection(sentence, existingTags);
     if (!result || !result.success) return;
 
     const c = result.correction;
@@ -340,6 +359,31 @@ class ExpressionTrainer {
     }
   }
 
+  // ===== 学习数据存档 =====
+
+  async saveCurrentSession() {
+    if (!this.fullText.trim() && this.corrections.length === 0) return;
+    const session = {
+      mode: 'A',
+      fullText: this.fullText,
+      durationSec: this.stats.duration || 0,
+      totalWords: this.stats.totalWords || 0,
+      fillers: this.stats.fillers || 0,
+      hedges: this.stats.hedges || 0,
+      vagueWords: this.stats.vagueWords || 0,
+      corrections: this.corrections
+    };
+    try {
+      await window.api.saveSession(session);
+      // 新标签即时并入本地注册表，本会话后续纠错即可复用
+      this.corrections.forEach(c => (c.tags || []).forEach(t => {
+        if (!this.registryTags.includes(t)) this.registryTags.push(t);
+      }));
+    } catch (e) {
+      console.warn('saveSession failed:', e.message);
+    }
+  }
+
   // ===== 报告 =====
 
   async generateReport() {
@@ -417,6 +461,8 @@ class ExpressionTrainer {
 
   resetStats() {
     this.stats = { fillers: 0, hedges: 0, vagueWords: 0, totalWords: 0, duration: 0 };
+    this.corrections = [];
+    this.sessionTags = new Set();
     this.updateStatsDisplay();
     this.feedbackContent.innerHTML = '';
   }
@@ -493,8 +539,8 @@ class ExpressionTrainer {
     this.fullText = text;
     this.resetStats();
 
-    // 按句号/问号/感叹号/换行分句
-    const sentences = text.split(/(?<=[。！？\n])/g).filter(s => s.trim());
+    // 按句分句（兼容中英标点）
+    const sentences = text.split(/(?<=[.!?。！？\n])/g).filter(s => s.trim());
     this.sentences = sentences;
 
     for (const sentence of sentences) {
@@ -503,7 +549,7 @@ class ExpressionTrainer {
       line.innerHTML = this.highlightText(sentence.trim());
       this.subtitleContainer.appendChild(line);
 
-      // 词库分析
+      // 本地词库分析（统计）
       const analysis = await window.api.analyzeText(sentence);
       if (analysis) {
         this.stats.fillers += analysis.fillers.length;
@@ -511,6 +557,9 @@ class ExpressionTrainer {
         this.stats.vagueWords += analysis.vagueWords.length;
         this.stats.totalWords += analysis.totalWords;
       }
+
+      // AI 按句纠错卡片
+      this.requestCorrection(sentence.trim());
     }
 
     this.stats.duration = 0; // 粘贴模式没有时长
@@ -522,8 +571,7 @@ class ExpressionTrainer {
     this.btnSaveText.classList.remove('hidden');
     this.btnClear.classList.remove('hidden');
 
-    // 请求AI语境化反馈
-    this.requestRealtimeFeedback();
+    this.saveCurrentSession();   // 粘贴逐字稿也存档
   }
 }
 

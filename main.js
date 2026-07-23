@@ -4,9 +4,10 @@ const fs = require('fs');
 const { initASR, feedAudio, stopRecognition } = require('./lib/asr');
 const { loadLexicon, analyzeText } = require('./lib/lexicon');
 const { sendFeedback, sendReport, testConnection, sendCorrection } = require('./lib/ai-feedback');
+const storage = require('./lib/storage');
 
 // 覆盖应用显示名称（菜单栏、Dock、任务栏、窗口标题）
-app.setName('宇宙无敌表达训练');
+app.setName('英语表达训练');
 
 let mainWindow;
 let settingsWindow;
@@ -100,7 +101,7 @@ function createMainWindow() {
     width: 1200,
     height: 800,
     backgroundColor: '#000000',
-    title: '宇宙无敌表达训练',
+    title: '英语表达训练',
     titleBarStyle: 'hiddenInset',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -206,6 +207,9 @@ app.whenReady().then(() => {
 
   // 加载词库
   loadLexicon();
+
+  // 初始化学习数据存储
+  storage.initStorage(path.join(app.getPath('userData'), 'learning-data'));
 
   createMainWindow();
 
@@ -320,6 +324,20 @@ ipcMain.handle('get-realtime-feedback', async (event, text) => {
   } catch (error) {
     return { success: false, error: error.message };
   }
+});
+
+// 学习数据存储
+ipcMain.handle('save-session', (event, session) => {
+  try {
+    const paths = storage.saveSession(session);
+    return { success: true, ...paths };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-tags', () => {
+  return storage.loadTags();
 });
 
 // Mode A: 按句纠错（结构化返回 + 标签）

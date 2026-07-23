@@ -34,4 +34,8 @@ contextBridge.exposeInMainWorld('api', {
 
   // 文件保存
   saveFile: (content, filename) => ipcRenderer.invoke('save-file', content, filename),
+
+  // 学习数据存储
+  saveSession: (session) => ipcRenderer.invoke('save-session', session),
+  getTags: () => ipcRenderer.invoke('get-tags'),
 });
