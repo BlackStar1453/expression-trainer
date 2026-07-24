@@ -241,6 +241,7 @@ app.on('window-all-closed', () => {
 // 退出时关掉常驻 claude 子进程
 app.on('before-quit', () => {
   claudeCli.shutdown();
+  tts.shutdown(); // 关掉常驻 Edge TTS 连接
 });
 
 // IPC Handlers
@@ -371,6 +372,8 @@ ipcMain.handle('tts-synth', async (event, { text, voice, rate }) => {
     const dataUrl = 'data:audio/mpeg;base64,' + buf.toString('base64');
     return { success: true, dataUrl };
   } catch (error) {
+    // 打进主进程日志：edge 失败原因否则不可见（渲染层只静默回退），排查全靠它
+    console.warn('[TTS] edge 合成失败，渲染层将回退本地语音:', error.message);
     return { success: false, error: error.message };
   }
 });
