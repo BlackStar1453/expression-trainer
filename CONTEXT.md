@@ -50,13 +50,22 @@
 ## Issues #2 + #3（2026-07-24 完成，均经独立 agent 评审）
 
 - **#2 Mode A 英文专用 ASR**（`feat/asr-en-model`，5 slices）：见「关键决策」6。模型下载：GitHub 整包 tarball 在受限网络下反复截断，**改从 HuggingFace 单抓 int8 三件套更稳**（encoder 188MB + decoder 527KB + joiner 253KB）。评审反馈已落地：checkModels 前置（缺模型不毁旧引擎）、换模型分支补集成覆盖、原生内存滞留（addon 无 free，~190MB 等 GC）已注释说明。
-- **#3 TTS 朗读**（`feat/tts-speak`，6 slices）：纠错卡（原句+地道句）与学习卡（英文句）加 🔊，统一 `window.tts.speak()`。双引擎：**webspeech 默认**（离线零依赖）/ **edge 可选**（`msedge-tts` 2.0.7 免 key，主进程 `lib/tts.js` 合成 mp3 data URL，**3s 超时自动回退本地语音 + 轻提示**——适配受限网络）。设置页配引擎/语音/语速（0.5-2.0x，两引擎同语义）。评审反馈已落地：**SSML XML 转义**（含 & / < 的句子不再被 Edge 拒绝且误报网络问题）、语音未加载完不覆盖已存选择、武装跟读先停 TTS（尾音不混进跟读识别）、超时竞态守卫。共享纯函数在 `lib/tts-helpers.js`（UMD，node+渲染两用）。
+- **#3 TTS 朗读**（`feat/tts-speak`，6 slices）：纠错卡（修正句）与学习卡（英文句）加 🔊，统一 `window.tts.speak()`。双引擎：**webspeech 默认**（离线零依赖）/ **edge 可选**（`msedge-tts` 2.0.7 免 key，主进程 `lib/tts.js` 合成 mp3 data URL，失败自动回退本地语音 + 轻提示——适配受限网络）。设置页配引擎/语音/语速（0.5-2.0x，两引擎同语义）+ **🔊 试听按钮**（按当前表单值即点即听）。评审反馈已落地：**SSML XML 转义**（含 & / < 的句子不再被 Edge 拒绝且误报网络问题）、语音未加载完不覆盖已存选择、武装跟读先停 TTS（尾音不混进跟读识别）。共享纯函数在 `lib/tts-helpers.js`（UMD，node+渲染两用）。
+
+## 合并后打磨（2026-07-24 下午，验收驱动的 7 个 commit）
+
+> 主线：**把所有可预付的等待移出用户路径**。用户网络到微软/Anthropic 的握手都极慢（实测 5-17s），策略统一为「连接/进程常驻 + 提前预热 + 等待可见化」。
+
+- **Edge TTS 三层提速**（`lib/tts.js` 重写）：① **连接常驻复用**——建连 ~7.4s 是大头，活连接单句仅 1-2s，缓存连接跨调用复用，闲置被断则自动重连重试一次（真离线不重试，快速回退）；② **卡片预合成**——卡片一渲染就后台合成进渲染层缓存（`src/tts.js`，Map 上限 120、在途去重），点 🔊 即点即播；③ **预热**——应用启动/设置变更/开始录制时提前建连（`tts-warmup` IPC）。合成超时用**流停滞检测**（5s 无数据判死 + 30s 硬上限）而非总时长；主进程合成**串行队列**防同连接并发干扰。🔊 按钮合成期间圆圈 loading。
+- **LLM 同款处理**（`lib/claude-cli.js`）：`warmup()`（spawn + 微型 ping，启动/设置变更/开始录制三时机，`main.js warmClaudeIfActive`）；**闲时回收**取代懒回收（响应完且队列空时换进程并预热新进程，用户无感）；软阈值 **20→10**（实测 stream-json 会话轮次越多单轮越慢——每轮携带全部历史），硬上限 20 兜底。**边界**：单轮耗时地板 = 网络到 Anthropic 的往返（当前时段实测 6-14s，无法客户端优化；网络好时 ~3s）。
+- **LLM 等待占位卡**（`src/app.js`）：句子送出即插「转圈+原句」占位卡，返回后原位收尾——有错换真卡 / 整句地道变「✓ 这句很地道」淡出（补上设计有但从未实现的 ✓ 反馈）/ 失败「⚠️ 已跳过」淡出；会话清空后迟到结果直接丢弃（顺带修掉迟到复活隐患）。
+- **待办**：issue #4（卡片顺序应与字幕一致，新卡在下）、#5（断句：说话慢被 1.2s 停顿拆句，半句纠错无意义；建议定稿缓冲层+可调停顿容忍度）。
 
 ## AI 后端：Claude 订阅（CLI）—— slice 8
 
 - **动机**：用用户现成的 Claude 订阅，免填 API Key。
 - **实现**：`lib/claude-cli.js` 维护**一个常驻** `claude -p --input-format stream-json --output-format stream-json --verbose` 子进程；stdin 逐行发 `{"type":"user",...}`，读到 `{"type":"result",...}` 即一轮完成。请求经队列**串行**（stream-json 一次一轮）。
-- **保温**：常驻进程避免每次 ~10s 冷启动 → 后续每句 ~2-4s。每 20 次调用**回收进程**以限制上下文膨胀；进程死了自动重启。
+- **保温**：常驻进程避免每次 ~10s 冷启动 → 后续每句 ~2-4s（网络好时；见「合并后打磨」的边界说明）。软阈值 10 次**闲时回收+预热**以限制上下文膨胀（硬上限 20 兜底）；进程死了自动重启；启动/设置变更/开始录制时 `warmup()` 预热。
 - **路由**：`ai-feedback.js` 的 `callModel(settings, messages, maxTokens)` 按 `settings.provider` 分流：`claude-cli` 走子进程，其余走 OpenAI 兼容 HTTP。解析层（parseCorrection/parseTranslation）provider 无关，已容错 code-fence/prose。
 - **系统提示**：因常驻进程共享一个会话，任务指令（纠错 vs 翻译）**拼进每条 user 消息**，不用 `--system-prompt`。
 - **默认**：新装默认 `provider='claude-cli'`, model `sonnet`；设置页可切 sonnet/opus/haiku、可手填 `binPath`。
