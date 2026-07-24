@@ -1,6 +1,14 @@
 // 设置页逻辑
 
 const PROVIDER_CONFIG = {
+  'claude-cli': {
+    needsKey: false,
+    models: [
+      { value: 'sonnet', label: 'Sonnet（推荐，快）' },
+      { value: 'opus', label: 'Opus（更强，稍慢）' },
+      { value: 'haiku', label: 'Haiku（最快）' }
+    ]
+  },
   openai: {
     needsKey: true,
     keyHint: '在 platform.openai.com 获取',
@@ -43,6 +51,7 @@ class SettingsPage {
     this.ollamaUrlInput = document.getElementById('ollama-url');
     this.customBaseUrlInput = document.getElementById('custom-base-url');
     this.customModelInput = document.getElementById('custom-model');
+    this.claudeBinInput = document.getElementById('claude-bin');
     this.btnSave = document.getElementById('btn-save');
     this.saveSuccess = document.getElementById('save-success');
 
@@ -50,6 +59,7 @@ class SettingsPage {
     this.groupOllama = document.getElementById('group-ollama');
     this.groupCustom = document.getElementById('group-custom');
     this.groupCustomModel = document.getElementById('group-custom-model');
+    this.groupClaudeCli = document.getElementById('group-claude-cli');
 
     this.bindEvents();
     this.loadSettings();
@@ -63,7 +73,7 @@ class SettingsPage {
   async loadSettings() {
     this.settings = await window.api.getSettings();
 
-    this.providerSelect.value = this.settings.provider || 'deepseek';
+    this.providerSelect.value = this.settings.provider || 'claude-cli';
 
     // 先填充模型列表再加载字段值
     this.onProviderChange();
@@ -77,6 +87,7 @@ class SettingsPage {
     this.ollamaUrlInput.value = providerConfig.ollamaUrl || 'http://localhost:11434';
     this.customBaseUrlInput.value = providerConfig.baseUrl || '';
     this.customModelInput.value = providerConfig.customModel || '';
+    this.claudeBinInput.value = providerConfig.binPath || '';
 
     // 设置模型下拉框（非 custom 模式）
     if (providerConfig.model && provider !== 'custom') {
@@ -93,6 +104,7 @@ class SettingsPage {
     this.groupOllama.classList.toggle('visible', provider === 'ollama');
     this.groupCustom.classList.toggle('visible', provider === 'custom');
     this.groupCustomModel.classList.toggle('visible', provider === 'custom');
+    this.groupClaudeCli.classList.toggle('visible', provider === 'claude-cli');
 
     // 更新key提示
     if (config.keyHint) {
@@ -134,7 +146,13 @@ class SettingsPage {
       settings.providers = {};
     }
 
-    if (provider === 'custom') {
+    if (provider === 'claude-cli') {
+      // Claude 订阅：只需模型 + 可选二进制路径，无 key
+      settings.providers[provider] = {
+        model: this.modelSelect.value,
+        binPath: this.claudeBinInput.value.trim()
+      };
+    } else if (provider === 'custom') {
       // custom 的模型名来自自定义输入框
       settings.providers[provider] = {
         apiKey: this.apikeyInput.value.trim(),

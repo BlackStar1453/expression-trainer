@@ -43,9 +43,22 @@
 5. ✅ **B-翻译卡**：模式切换 UI + 中→英学习卡（`getTranslationPrompt`）。
 6. ✅ **B-跟读环**：跟读状态机 + `lib/diff.js` 词级 LCS diff。
 7. ✅ **打磨**：清理废弃中文实时反馈代码、更新 README。
+8. ✅ **Claude 订阅 provider（CLI）**：用 `claude -p` 常驻子进程免 key 调用，设为默认。
 
-**测试**：纯逻辑全部 Node 单测覆盖，65/65 绿 —— lexicon 16 · correction 10 · storage 17 · translation 10 · diff 12。
-**未做**：真机 Electron 端到端（需下 200MB ASR 模型）。
+**测试**：纯逻辑 Node 单测 + 集成，全绿 —— lexicon 16 · correction 10 · storage 17 · translation 10 · diff 12 · 集成 17 · claude 路由 9 · **claude 真机 e2e 5**。
+**已验证真机**：ASR 模型加载 + 真实转写；claude 订阅 provider 冷 7.7s→暖 3.0s，纠错/翻译结构化输出正确。
+
+## AI 后端：Claude 订阅（CLI）—— slice 8
+
+- **动机**：用用户现成的 Claude 订阅，免填 API Key。
+- **实现**：`lib/claude-cli.js` 维护**一个常驻** `claude -p --input-format stream-json --output-format stream-json --verbose` 子进程；stdin 逐行发 `{"type":"user",...}`，读到 `{"type":"result",...}` 即一轮完成。请求经队列**串行**（stream-json 一次一轮）。
+- **保温**：常驻进程避免每次 ~10s 冷启动 → 后续每句 ~2-4s。每 20 次调用**回收进程**以限制上下文膨胀；进程死了自动重启。
+- **路由**：`ai-feedback.js` 的 `callModel(settings, messages, maxTokens)` 按 `settings.provider` 分流：`claude-cli` 走子进程，其余走 OpenAI 兼容 HTTP。解析层（parseCorrection/parseTranslation）provider 无关，已容错 code-fence/prose。
+- **系统提示**：因常驻进程共享一个会话，任务指令（纠错 vs 翻译）**拼进每条 user 消息**，不用 `--system-prompt`。
+- **默认**：新装默认 `provider='claude-cli'`, model `sonnet`；设置页可切 sonnet/opus/haiku、可手填 `binPath`。
+- **二进制路径**：Finder 启动不继承 shell PATH → `resolveBin` 依次探 `~/.local/bin/claude` 等，兜底 PATH，设置可覆盖。
+- **生命周期**：`app.before-quit` 调 `claudeCli.shutdown()` 杀子进程。
+- **已知局限**：串行队列下突发多句会排队；`claude -p` 首句仍有冷启动；依赖本机已登录 Claude Code。
 
 ## 已知技术债
 

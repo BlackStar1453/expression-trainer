@@ -19,7 +19,7 @@
 - 📖 **Mode B 学习卡 + 跟读环**：中文原句 → 地道英文 → 讲解 → 🎤 跟读 → 词级 diff（对绿/漏错红）+ 匹配度，自定节奏 🔁 再读一次
 - 🏷️ **生长式标签**：AI 打标时优先复用历史标签，跨会话聚合
 - 💾 **学习语料库**：每场自动存 `JSON + Markdown 镜像 + INDEX.md`，MD 供 AI 复习消费
-- 🤖 **多 AI 后端**：DeepSeek / OpenAI / Ollama / 自定义 OpenAI 兼容接口
+- 🤖 **多 AI 后端**：**Claude 订阅（CLI，默认，无需 API Key）** / DeepSeek / OpenAI / Ollama / 自定义 OpenAI 兼容接口
 
 ## 安装
 
@@ -57,7 +57,11 @@ npm start          # 或 npm run dev（带 DevTools）
 
 ### 4. 配置 AI 后端
 
-点右上角 ⚙️ 进设置，填 DeepSeek / OpenAI 的 API Key，或用本地 Ollama。推荐 **DeepSeek**：质量高、成本极低。
+默认用 **Claude 订阅（CLI）**——只要你本机装了 `claude`（Claude Code）并已登录，**无需任何 API Key**，开箱即用（首句约 10s 冷启动，之后每句约 2-4s，进程保温）。
+
+想换后端就点右上角 ⚙️：填 DeepSeek / OpenAI 的 API Key，或用本地 Ollama。
+
+> Claude 订阅模式通过常驻 `claude -p`（stream-json）子进程调用，退出应用时自动关闭。从终端 `npm start` 启动能自动找到 `claude`；若找不到可在设置里手填路径。
 
 ## 使用
 

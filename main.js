@@ -6,6 +6,7 @@ const { loadLexicon, analyzeText } = require('./lib/lexicon');
 const { sendFeedback, sendReport, testConnection, sendCorrection, sendTranslation } = require('./lib/ai-feedback');
 const storage = require('./lib/storage');
 const { diffWords } = require('./lib/diff');
+const claudeCli = require('./lib/claude-cli');
 
 // 覆盖应用显示名称（菜单栏、Dock、任务栏、窗口标题）
 app.setName('英语表达训练');
@@ -34,6 +35,7 @@ function saveCustomPrompt(data) {
 
 // 各 Provider 的默认配置
 const DEFAULT_PROVIDER_CONFIGS = {
+  'claude-cli': { model: 'sonnet', binPath: '' },
   openai: { apiKey: '', model: 'gpt-4o-mini' },
   deepseek: { apiKey: '', model: 'deepseek-chat' },
   ollama: { ollamaUrl: 'http://localhost:11434', model: 'qwen2.5:7b' },
@@ -81,7 +83,7 @@ function loadSettings() {
     return raw;
   }
   return {
-    provider: 'deepseek',
+    provider: 'claude-cli',
     providers: JSON.parse(JSON.stringify(DEFAULT_PROVIDER_CONFIGS))
   };
 }
@@ -225,6 +227,11 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+// 退出时关掉常驻 claude 子进程
+app.on('before-quit', () => {
+  claudeCli.shutdown();
 });
 
 // IPC Handlers
