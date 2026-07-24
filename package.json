@@ -6,15 +6,23 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "electron . --dev"
+    "dev": "electron . --dev",
+    "test": "node --test"
   },
-  "keywords": ["expression", "training", "speech", "asr", "chinese"],
+  "keywords": [
+    "expression",
+    "training",
+    "speech",
+    "asr",
+    "chinese"
+  ],
   "author": "sisi",
   "license": "MIT",
   "devDependencies": {
     "electron": "^33.0.0"
   },
   "dependencies": {
+    "msedge-tts": "^2.0.7",
     "sherpa-onnx-node": "^1.10.0"
   }
 }
