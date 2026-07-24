@@ -378,6 +378,13 @@ ipcMain.handle('tts-synth', async (event, { text, voice, rate }) => {
   }
 });
 
+// TTS 连接预热：应用启动/开始录制时提前建好 Edge 连接（离线失败属预期，不报错）
+ipcMain.handle('tts-warmup', async (event, { voice } = {}) => {
+  const ok = await tts.warmup(voice);
+  if (ok) console.log('[TTS] edge 连接预热完成');
+  return { success: ok };
+});
+
 // Mode A: 按句纠错（结构化返回 + 标签）
 ipcMain.handle('get-sentence-correction', async (event, { sentence, existingTags }) => {
   const settings = loadSettings();

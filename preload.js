@@ -45,4 +45,5 @@ contextBridge.exposeInMainWorld('api', {
 
   // TTS 'edge' provider：主进程合成 → { success, dataUrl } 或 { success:false, error }
   ttsSynth: (text, voice, rate) => ipcRenderer.invoke('tts-synth', { text, voice, rate }),
+  ttsWarmup: (voice) => ipcRenderer.invoke('tts-warmup', { voice }),
 });

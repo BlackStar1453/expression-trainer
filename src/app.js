@@ -118,6 +118,9 @@ class ExpressionTrainer {
       return;
     }
 
+    // 开始录制 = 马上会出卡片：顺手预热 TTS 连接（说完第一句时连接已就绪）
+    if (window.tts && window.tts.warmup) window.tts.warmup();
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       this.audioContext = new AudioContext({ sampleRate: 16000 });
@@ -329,7 +332,6 @@ class ExpressionTrainer {
     card.innerHTML = `
       <div class="cc-original">
         <span class="cc-text">${this.escapeHtml(entry.original)}</span>
-        <button class="tts-btn" data-tts="original" title="朗读原句" aria-label="朗读原句">🔊</button>
       </div>
       <div class="cc-corrected">
         <span class="cc-text">${this.escapeHtml(entry.corrected)}</span>
@@ -339,7 +341,6 @@ class ExpressionTrainer {
       ${tagsHtml ? `<div class="cc-tags">${tagsHtml}</div>` : ''}
     `;
 
-    this._wireSpeakButton(card, '[data-tts="original"]', entry.original);
     this._wireSpeakButton(card, '[data-tts="corrected"]', entry.corrected);
 
     this.feedbackContent.insertBefore(card, this.feedbackContent.firstChild);
@@ -350,7 +351,6 @@ class ExpressionTrainer {
     // 卡片一出现就后台预合成（edge 引擎下），点 🔊 时即点即播
     if (window.tts && window.tts.prefetch) {
       window.tts.prefetch(entry.corrected);
-      window.tts.prefetch(entry.original);
     }
   }
 
@@ -365,9 +365,13 @@ class ExpressionTrainer {
   _wireSpeakButton(root, selector, text) {
     const btn = root.querySelector(selector);
     if (btn && text && window.tts) {
-      btn.addEventListener('click', (e) => {
+      btn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        window.tts.speak(text);
+        if (btn.classList.contains('loading')) return;
+        // 合成期间转圈（预合成命中时几乎瞬间恢复）；出声即恢复图标
+        btn.classList.add('loading');
+        try { await window.tts.speak(text); }
+        finally { btn.classList.remove('loading'); }
       });
     }
   }

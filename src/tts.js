@@ -32,10 +32,21 @@ class TtsController {
     } catch (_) {
       this.settings = H.resolveTtsSettings({});
     }
+    // edge 引擎：顺手预热连接（活连接是瞬时 no-op；换语音后会预建新连接）
+    this.warmup();
     return this.settings;
   }
 
   reloadSettings() { return this._loadSettings(); }
+
+  /** 预热 Edge 连接（fire-and-forget；仅 edge 引擎下生效，失败静默） */
+  warmup() {
+    const s = this.settings;
+    if (!s || s.provider !== 'edge') return;
+    if (window.api.ttsWarmup) {
+      window.api.ttsWarmup(s.voice).catch(() => {});
+    }
+  }
 
   /** 供设置页/调试用：当前可选的英文 Web Speech 语音 */
   getEnglishVoices() {

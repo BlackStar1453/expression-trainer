@@ -215,6 +215,23 @@ button, input, select, .subtitle-scroll, .feedback-content, .modal-body {
 }
 .tts-btn:hover { opacity: 1; background: rgba(229, 0, 126, 0.15); }
 .tts-btn:active { transform: scale(0.9); }
+
+/* 合成中的圆圈 loading：隐藏 🔊 字形，原位转圈 */
+.tts-btn { position: relative; }
+.tts-btn.loading { pointer-events: none; color: transparent; opacity: 1; }
+.tts-btn.loading::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 11px;
+  height: 11px;
+  border: 2px solid rgba(229, 0, 126, 0.25);
+  border-top-color: #e5007e;
+  border-radius: 50%;
+  animation: tts-spin 0.7s linear infinite;
+}
+@keyframes tts-spin { to { transform: rotate(360deg); } }
 /* 让原句/地道句的文本各占一行、按钮跟在行尾 */
 .cc-original .cc-text, .cc-corrected .cc-text, .lc-en .lc-en-text { vertical-align: middle; }
 
