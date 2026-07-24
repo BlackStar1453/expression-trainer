@@ -228,6 +228,7 @@ class ExpressionTrainer {
   }
 
   renderSubtitle(currentText, isFinal) {
+    const follow = this._isNearBottom(this.subtitleScroll);
     if (isFinal) {
       // 移除interim
       const interim = this.subtitleContainer.querySelector('.interim-line');
@@ -253,8 +254,8 @@ class ExpressionTrainer {
       interim.textContent = currentText;
     }
 
-    // 自动滚到底
-    this.subtitleScroll.scrollTop = this.subtitleScroll.scrollHeight;
+    // 自动滚到底（仅当用户本就在底部附近，回看时不打断）
+    if (follow) this.subtitleScroll.scrollTop = this.subtitleScroll.scrollHeight;
   }
 
   highlightText(text) {
@@ -336,6 +337,11 @@ class ExpressionTrainer {
 
   // ===== LLM 等待占位卡 =====
 
+  /** 是否接近底部——仅此时才跟随滚动，用户回看旧内容时不强行拉走视口 */
+  _isNearBottom(el, threshold = 80) {
+    return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+  }
+
   /** 插入一张「转圈占位卡」，返回元素供后续原位替换/收尾 */
   _insertPendingCard(text, label) {
     const el = document.createElement('div');
@@ -344,7 +350,10 @@ class ExpressionTrainer {
       <div class="pc-row"><span class="pc-spinner"></span><span class="pc-label">${this.escapeHtml(label)}</span></div>
       <div class="pc-text">${this.escapeHtml(text)}</div>
     `;
-    this.feedbackContent.insertBefore(el, this.feedbackContent.firstChild);
+    // 新卡追加到底部，与字幕出现顺序一致
+    const follow = this._isNearBottom(this.feedbackContent);
+    this.feedbackContent.appendChild(el);
+    if (follow) this.feedbackContent.scrollTop = this.feedbackContent.scrollHeight;
     return el;
   }
 
@@ -384,12 +393,14 @@ class ExpressionTrainer {
 
     this._wireSpeakButton(card, '[data-tts="corrected"]', entry.corrected);
 
-    // 有占位卡则原位替换（保持与说话顺序一致的落点），否则按旧逻辑插入
+    // 有占位卡则原位替换（保持与说话顺序一致的落点），否则追加到底部
+    const follow = this._isNearBottom(this.feedbackContent);
     if (pendingEl) pendingEl.replaceWith(card);
-    else this.feedbackContent.insertBefore(card, this.feedbackContent.firstChild);
+    else this.feedbackContent.appendChild(card);
     while (this.feedbackContent.children.length > 20) {
-      this.feedbackContent.removeChild(this.feedbackContent.lastChild);
+      this.feedbackContent.removeChild(this.feedbackContent.firstChild); // 追加布局下顶端是最旧
     }
+    if (follow) this.feedbackContent.scrollTop = this.feedbackContent.scrollHeight;
 
     // 卡片一出现就后台预合成（edge 引擎下），点 🔊 时即点即播
     if (window.tts && window.tts.prefetch) {
@@ -494,9 +505,11 @@ class ExpressionTrainer {
     this._wireSpeakButton(card, '[data-tts="en"]', entry.en);
     const btn = card.querySelector('.btn-shadow');
     btn.addEventListener('click', () => this.armShadow(entry, btn));
-    // 有占位卡则原位替换，否则按旧逻辑插入
+    // 有占位卡则原位替换，否则追加到底部
+    const follow = this._isNearBottom(this.feedbackContent);
     if (pendingEl) pendingEl.replaceWith(card);
-    else this.feedbackContent.insertBefore(card, this.feedbackContent.firstChild);
+    else this.feedbackContent.appendChild(card);
+    if (follow) this.feedbackContent.scrollTop = this.feedbackContent.scrollHeight;
 
     // 学习卡的地道英文同样预合成，点 🔊 即播
     if (window.tts && window.tts.prefetch) {
