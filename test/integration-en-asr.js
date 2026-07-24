@@ -77,6 +77,25 @@ async function main() {
   }
 
   console.log('=== 完成：sherpa 接受了 transducer(encoder/decoder/joiner) 配置，未抛错 ===');
+
+  // ===== 换模型状态机验证：en → bilingual → en =====
+  // 覆盖 initASR 的异种拆除/重建分支（评审 finding 1：该分支此前无任何自动化覆盖）
+  try {
+    asr.checkModels('bilingual');
+  } catch (e) {
+    console.log('\n[skip] 双语模型未下载，跳过换模型状态机验证（en↔bilingual swap）');
+    return;
+  }
+
+  console.log('\n=== 换模型状态机验证: en → bilingual → en ===');
+  await asr.initASR('B'); // en→bilingual：真实走「拆旧引擎+重建」
+  await asr.initASR('A'); // bilingual→en：再次拆除+重建
+  const again = transcribeWav(path.join(wavsDir, wavFiles[0]));
+  console.log(`[swap] ${wavFiles[0]} 重载后 → "${again.text}"`);
+  if (!again.text || again.text.length < 10) {
+    fail('换模型后英文识别结果异常（空或过短）——拆除/重建分支疑似有问题');
+  }
+  console.log('=== 换模型状态机验证通过：拆除/重建后英文识别仍正常 ===');
 }
 
 main().catch((e) => {

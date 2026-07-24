@@ -71,6 +71,31 @@ test('buildModelConfig(bilingual): paraformer 形状（encoder/decoder），无 
     path.basename(path.dirname(cfg.paraformer.encoder)),
     'sherpa-onnx-streaming-paraformer-bilingual-zh-en'
   );
+
+  // 通用字段也逐项钉住（与旧版一致）
+  assert.equal(cfg.numThreads, 2);
+  assert.equal(cfg.provider, 'cpu');
+  assert.equal(cfg.debug, false);
+});
+
+test('checkModels: 模型文件缺失时抛含下载提示的清晰错误', () => {
+  // 临时注入一个指向不存在文件的假条目，环境无关（不依赖哪个模型已下载）
+  asr.MODEL_REGISTRY.__fake = {
+    kind: 'paraformer',
+    subdir: 'no-such-model-dir',
+    files: { encoder: 'nope.onnx', decoder: 'nope2.onnx', tokens: 'tokens.txt' },
+  };
+  try {
+    assert.throws(
+      () => asr.checkModels('__fake'),
+      (err) =>
+        /模型文件未找到/.test(err.message) &&
+        /no-such-model-dir/.test(err.message) &&
+        /README/.test(err.message)
+    );
+  } finally {
+    delete asr.MODEL_REGISTRY.__fake;
+  }
 });
 
 test('buildRecognizerConfig(bilingual): 与旧版解码参数逐字节一致', () => {
