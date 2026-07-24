@@ -326,11 +326,20 @@ class ExpressionTrainer {
       .join('');
 
     card.innerHTML = `
-      <div class="cc-original">${this.escapeHtml(entry.original)}</div>
-      <div class="cc-corrected">${this.escapeHtml(entry.corrected)}</div>
+      <div class="cc-original">
+        <span class="cc-text">${this.escapeHtml(entry.original)}</span>
+        <button class="tts-btn" data-tts="original" title="朗读原句" aria-label="朗读原句">🔊</button>
+      </div>
+      <div class="cc-corrected">
+        <span class="cc-text">${this.escapeHtml(entry.corrected)}</span>
+        ${entry.corrected ? '<button class="tts-btn" data-tts="corrected" title="朗读地道表达" aria-label="朗读地道表达">🔊</button>' : ''}
+      </div>
       ${entry.explanation ? `<div class="cc-explain">${this.escapeHtml(entry.explanation)}</div>` : ''}
       ${tagsHtml ? `<div class="cc-tags">${tagsHtml}</div>` : ''}
     `;
+
+    this._wireSpeakButton(card, '[data-tts="original"]', entry.original);
+    this._wireSpeakButton(card, '[data-tts="corrected"]', entry.corrected);
 
     this.feedbackContent.insertBefore(card, this.feedbackContent.firstChild);
     while (this.feedbackContent.children.length > 20) {
@@ -343,6 +352,17 @@ class ExpressionTrainer {
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
+  }
+
+  // 给卡片里的 🔊 按钮挂朗读处理：文本取自 JS 对象（闭包），不经 DOM/onclick，天然 XSS 安全
+  _wireSpeakButton(root, selector, text) {
+    const btn = root.querySelector(selector);
+    if (btn && text && window.tts) {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        window.tts.speak(text);
+      });
+    }
   }
 
   // ===== Mode B：说中文 → 地道英文学习卡 =====
@@ -390,7 +410,10 @@ class ExpressionTrainer {
 
     card.innerHTML = `
       <div class="lc-zh">${this.escapeHtml(entry.zh)}</div>
-      <div class="lc-en">${this.escapeHtml(entry.en)}</div>
+      <div class="lc-en">
+        <span class="lc-en-text">${this.escapeHtml(entry.en)}</span>
+        ${entry.en ? '<button class="tts-btn" data-tts="en" title="朗读英文" aria-label="朗读英文">🔊</button>' : ''}
+      </div>
       ${entry.note ? `<div class="lc-note">${this.escapeHtml(entry.note)}</div>` : ''}
       ${tagsHtml ? `<div class="cc-tags">${tagsHtml}</div>` : ''}
       <div class="lc-shadow">
@@ -403,6 +426,7 @@ class ExpressionTrainer {
     `;
 
     entry._el = card;
+    this._wireSpeakButton(card, '[data-tts="en"]', entry.en);
     const btn = card.querySelector('.btn-shadow');
     btn.addEventListener('click', () => this.armShadow(entry, btn));
     this.feedbackContent.insertBefore(card, this.feedbackContent.firstChild);
@@ -632,6 +656,7 @@ class ExpressionTrainer {
   }
 
   clearAll() {
+    if (window.tts) window.tts.stop();   // 停掉可能仍在播放的朗读
     this.fullText = '';
     this.sentences = [];
     this.lastReport = '';
