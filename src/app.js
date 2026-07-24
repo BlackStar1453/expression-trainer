@@ -111,7 +111,8 @@ class ExpressionTrainer {
   // ===== 录制控制 =====
 
   async startRecording() {
-    const initResult = await window.api.initASR();
+    // 按当前模式选择识别模型：Mode A 用英文模型，Mode B 用中英双语模型
+    const initResult = await window.api.initASR(this.mode);
     if (!initResult.success) {
       this.showError(`语音识别启动失败: ${initResult.error}`);
       return;
