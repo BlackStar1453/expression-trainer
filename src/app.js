@@ -22,6 +22,9 @@ class ExpressionTrainer {
     this.bcards = [];
     this.shadowingEntry = null;   // 正在跟读的卡片
     this.shadowBtn = null;        // 对应的跟读按钮
+    // 定稿缓冲（issue #5）：isFinal 片段先缓冲，静默满「停顿容忍度」才定稿送 AI。
+    // 每次开始录制时按当前模式/设置重建。
+    this.sentenceBuffer = null;
     // 历史标签注册表（跨会话复用，注入纠错 prompt 让 AI 优先复用旧标签）
     this.registryTags = [];
     if (window.api.getTags) {
@@ -121,6 +124,15 @@ class ExpressionTrainer {
     // 开始录制 = 马上会出卡片：顺手预热 TTS 连接（说完第一句时连接已就绪）
     if (window.tts && window.tts.warmup) window.tts.warmup();
 
+    // 定稿缓冲：停顿容忍度来自设置（默认 2.5s）；joiner 按模式（英文空格/中文直拼）
+    const settings = await window.api.getSettings();
+    const { pauseTolerance } = window.SentenceBuffer.resolveAsrSettings(settings);
+    this.sentenceBuffer = window.SentenceBuffer.createSentenceBuffer({
+      holdMs: pauseTolerance * 1000,
+      joiner: this.mode === 'A' ? ' ' : '',
+      onCommit: (text) => this.commitSentence(text),
+    });
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       this.audioContext = new AudioContext({ sampleRate: 16000 });
@@ -179,6 +191,8 @@ class ExpressionTrainer {
 
   async stopRecording() {
     this.disarmShadow();
+    // 缓冲里还压着没定稿的残句 → 立即定稿（否则最后一句丢失）
+    if (this.sentenceBuffer) this.sentenceBuffer.flush();
     if (this.audioProcessor) { this.audioProcessor.disconnect(); this.audioProcessor = null; }
     if (this.audioContext) { this.audioContext.close(); this.audioContext = null; }
     if (this.mediaStream) { this.mediaStream.getTracks().forEach(t => t.stop()); this.mediaStream = null; }
@@ -213,47 +227,95 @@ class ExpressionTrainer {
   // ===== ASR结果处理 =====
 
   handleASRResult({ text, isFinal }) {
-    if (isFinal) {
-      this.sentences.push(text);
-      if (this.mode === 'A') {
-        // 英文按空格拼接，避免句子粘连
-        this.fullText += (this.fullText ? ' ' : '') + text;
-        this.analyzeCurrentSentence(text);   // 本地词库层：驱动统计 + 高亮
-        this.requestCorrection(text);        // AI 层：按句纠错卡片
+    // 跟读武装期间旁路缓冲：跟读是短句快读，isFinal 立即判定，体验零延迟（issue #5 决策）
+    if (this.mode === 'B' && this.shadowingEntry) {
+      if (isFinal) {
+        this.sentences.push(text);
+        this.renderCommittedSubtitle(text);
+        this.handleModeBSentence(text);      // 武装中 → 内部走 evaluateShadow
       } else {
-        this.handleModeBSentence(text);      // Mode B：说中文 → 翻译/跟读
+        this.renderInterim(text);
       }
+      return;
     }
-    this.renderSubtitle(text, isFinal);
+
+    if (isFinal) {
+      // 进定稿缓冲：静默满「停顿容忍度」后 onCommit 定稿；期间新片段合并为同一句
+      this.sentenceBuffer.pushFinal(text);
+      this.renderPendingSubtitle(this.sentenceBuffer.pendingText());
+    } else {
+      this.sentenceBuffer.noteActivity();    // 用户又开口了 → 挂起定稿计时
+      this.renderInterim(text);
+    }
   }
 
-  renderSubtitle(currentText, isFinal) {
-    if (isFinal) {
-      // 移除interim
-      const interim = this.subtitleContainer.querySelector('.interim-line');
-      if (interim) interim.remove();
+  /** 缓冲定稿回调：合并句从这里进入原「isFinal 即定稿」的全部下游管线 */
+  commitSentence(text) {
+    this.renderCommittedSubtitle(text);
+    this.sentences.push(text);
+    if (this.mode === 'A') {
+      // 英文按空格拼接，避免句子粘连
+      this.fullText += (this.fullText ? ' ' : '') + text;
+      this.analyzeCurrentSentence(text);   // 本地词库层：驱动统计 + 高亮
+      this.requestCorrection(text);        // AI 层：按句纠错卡片
+    } else {
+      this.handleModeBSentence(text);      // Mode B：说中文 → 翻译
+    }
+  }
 
-      // 旧行变灰
+  // ===== 字幕渲染：interim（识别中）→ pending（进缓冲待定稿）→ committed（定稿高亮） =====
+
+  renderInterim(text) {
+    let interim = this.subtitleContainer.querySelector('.interim-line');
+    if (!interim) {
+      interim = document.createElement('div');
+      interim.className = 'subtitle-line interim-line';
+      this.subtitleContainer.appendChild(interim);
+    }
+    interim.textContent = text;
+    this.scrollSubtitles();
+  }
+
+  /** 缓冲中的合并句：同一「待定稿」行原位更新——多段合并同一行显示，不再一段一行 */
+  renderPendingSubtitle(text) {
+    const interim = this.subtitleContainer.querySelector('.interim-line');
+    if (interim) interim.remove();
+
+    let pending = this.subtitleContainer.querySelector('.pending-line');
+    if (!pending) {
+      // 新句开始：旧行变灰
       this.subtitleContainer.querySelectorAll('.subtitle-line:not(.old)').forEach(el => {
         el.classList.add('old');
       });
-
-      // 新行
-      const line = document.createElement('div');
-      line.className = 'subtitle-line';
-      line.innerHTML = this.highlightText(currentText);
-      this.subtitleContainer.appendChild(line);
-    } else {
-      let interim = this.subtitleContainer.querySelector('.interim-line');
-      if (!interim) {
-        interim = document.createElement('div');
-        interim.className = 'subtitle-line interim-line';
-        this.subtitleContainer.appendChild(interim);
-      }
-      interim.textContent = currentText;
+      pending = document.createElement('div');
+      pending.className = 'subtitle-line pending-line';
+      this.subtitleContainer.appendChild(pending);
     }
+    pending.textContent = text;
+    this.scrollSubtitles();
+  }
 
-    // 自动滚到底
+  /** 定稿：待定稿行原位转正（高亮）；无待定稿行时新建（跟读旁路路径） */
+  renderCommittedSubtitle(text) {
+    const interim = this.subtitleContainer.querySelector('.interim-line');
+    if (interim) interim.remove();
+
+    let line = this.subtitleContainer.querySelector('.pending-line');
+    if (line) {
+      line.classList.remove('pending-line');
+    } else {
+      this.subtitleContainer.querySelectorAll('.subtitle-line:not(.old)').forEach(el => {
+        el.classList.add('old');
+      });
+      line = document.createElement('div');
+      line.className = 'subtitle-line';
+      this.subtitleContainer.appendChild(line);
+    }
+    line.innerHTML = this.highlightText(text);
+    this.scrollSubtitles();
+  }
+
+  scrollSubtitles() {
     this.subtitleScroll.scrollTop = this.subtitleScroll.scrollHeight;
   }
 
@@ -508,6 +570,9 @@ class ExpressionTrainer {
 
   armShadow(entry, btn) {
     if (!this.isRecording) { this.showError('请先开始录制，再点跟读'); return; }
+    // 缓冲里若压着未定稿的中文残句，先定稿送翻译——必须在设置 shadowingEntry 之前，
+    // 否则该句 commit 时会被误当成跟读朗读
+    if (this.sentenceBuffer) this.sentenceBuffer.flush();
     // 武装跟读 = 用户马上要对麦克风朗读：停掉进行中的 TTS，免得尾音被当成跟读内容识别
     if (window.tts) window.tts.stop();
     // 解除上一个武装
@@ -731,6 +796,7 @@ class ExpressionTrainer {
 
   clearAll() {
     if (window.tts) window.tts.stop();   // 停掉可能仍在播放的朗读
+    if (this.sentenceBuffer) this.sentenceBuffer.cancel();   // 丢弃未定稿残句，不再触发迟到定稿
     this.fullText = '';
     this.sentences = [];
     this.lastReport = '';
