@@ -68,6 +68,9 @@ class SettingsPage {
     this.ttsVoiceHint = document.getElementById('tts-voice-hint');
     this.ttsRateInput = document.getElementById('tts-rate');
     this.ttsRateVal = document.getElementById('tts-rate-val');
+    this.ttsPreviewBtn = document.getElementById('tts-preview');
+    this.ttsPreviewHint = document.getElementById('tts-preview-hint');
+    this._previewAudio = null; // 正在播放的 edge 试听音频
 
     this.bindEvents();
     this.loadSettings();
@@ -80,6 +83,7 @@ class SettingsPage {
     // TTS
     this.ttsProviderSelect.addEventListener('change', () => this.onTtsProviderChange());
     this.ttsRateInput.addEventListener('input', () => this.updateRateLabel());
+    this.ttsPreviewBtn.addEventListener('click', () => this.previewTts());
     // 某些平台 getVoices() 首次为空，voiceschanged 后才有 → 到齐再刷新
     if (window.speechSynthesis) {
       window.speechSynthesis.onvoiceschanged = () => {
@@ -114,6 +118,73 @@ class SettingsPage {
   getEnglishSystemVoices() {
     if (!window.speechSynthesis) return [];
     return window.speechSynthesis.getVoices().filter(v => /^en([-_]|$)/i.test(v.lang));
+  }
+
+  // ===== 试听：用当前表单值（引擎/语音/语速）直接读一句样例，无需先保存 =====
+
+  async previewTts() {
+    const SAMPLE = 'This is a preview of the current voice and speed.';
+    const provider = this.ttsProviderSelect.value === 'edge' ? 'edge' : 'webspeech';
+    const rate = Number(this.ttsRateInput.value) || 1.0;
+    const voice = this.ttsVoiceSelect.value;
+
+    this.stopPreview();
+
+    if (provider === 'edge') {
+      this.ttsPreviewBtn.disabled = true;
+      this.ttsPreviewBtn.textContent = '⏳ 合成中…';
+      this.ttsPreviewHint.textContent = '首次试听需建立连接，慢网络下可能要等 5~12 秒；之后连接保温、秒级出声。';
+      try {
+        const res = await window.api.ttsSynth(SAMPLE, voice, rate);
+        if (!res || !res.success) throw new Error((res && res.error) || 'synth failed');
+        const audio = new Audio(res.dataUrl);
+        this._previewAudio = audio;
+        audio.onended = () => this.resetPreviewBtn();
+        await audio.play();
+        this.ttsPreviewBtn.disabled = false;
+        this.ttsPreviewBtn.textContent = '🔊 再试一次';
+        this.ttsPreviewHint.textContent = '正在播放 Edge 神经语音。连接已保温，再点无需重新等待。';
+      } catch (e) {
+        this.resetPreviewBtn();
+        this.ttsPreviewHint.textContent = `⚠️ Edge 在线语音不可用（${e.message}），已改用系统语音试听。`;
+        this.speakLocalPreview(SAMPLE, rate, '');
+      }
+      return;
+    }
+
+    this.speakLocalPreview(SAMPLE, rate, voice);
+    this.ttsPreviewHint.textContent = '正在用系统语音播放。';
+  }
+
+  /** 本地 Web Speech 试听（也是 edge 失败时的回退） */
+  speakLocalPreview(text, rate, voiceURI) {
+    if (!window.speechSynthesis) {
+      this.ttsPreviewHint.textContent = '⚠️ 当前环境不支持系统语音。';
+      return;
+    }
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'en-US';
+    u.rate = rate;
+    const chosen = window.TtsHelpers
+      ? window.TtsHelpers.pickEnglishVoice(this.getEnglishSystemVoices(), voiceURI)
+      : null;
+    if (chosen) u.voice = chosen; // pickEnglishVoice 返回的就是真实 SpeechSynthesisVoice
+    u.onend = () => this.resetPreviewBtn();
+    speechSynthesis.speak(u);
+  }
+
+  /** 停掉进行中的试听（本地 + edge 音频），避免叠音 */
+  stopPreview() {
+    try { if (window.speechSynthesis) speechSynthesis.cancel(); } catch (_) {}
+    if (this._previewAudio) {
+      try { this._previewAudio.pause(); } catch (_) {}
+      this._previewAudio = null;
+    }
+  }
+
+  resetPreviewBtn() {
+    this.ttsPreviewBtn.disabled = false;
+    this.ttsPreviewBtn.textContent = '🔊 试听';
   }
 
   populateTtsVoices(provider) {

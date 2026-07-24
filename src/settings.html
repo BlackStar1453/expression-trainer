@@ -74,6 +74,18 @@
       display: block;
     }
 
+    .btn-preview {
+      padding: 8px 18px;
+      background: transparent;
+      color: #4dabf7;
+      border: 1px solid #4dabf7;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .btn-preview:hover { background: rgba(77, 171, 247, 0.12); }
+    .btn-preview:disabled { opacity: 0.55; cursor: default; }
+
     .btn-save {
       width: 100%;
       padding: 12px;
@@ -236,6 +248,11 @@
     <div class="form-group">
       <label>语速 <span class="rate-value" id="tts-rate-val">1.0x</span></label>
       <input type="range" id="tts-rate" min="0.5" max="2" step="0.1" value="1">
+    </div>
+
+    <div class="form-group">
+      <button type="button" class="btn-preview" id="tts-preview">🔊 试听</button>
+      <div class="hint" id="tts-preview-hint">用上面选的引擎 / 语音 / 语速读一句英文样例（无需先保存）。</div>
     </div>
 
     <div class="message-container">
