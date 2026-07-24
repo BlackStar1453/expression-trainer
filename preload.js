@@ -12,8 +12,8 @@ contextBridge.exposeInMainWorld('api', {
   saveCustomPrompt: (data) => ipcRenderer.invoke('save-custom-prompt', data),
   closeWindow: () => ipcRenderer.invoke('close-current-window'),
 
-  // 语音识别 - 使用 Web Audio 方案
-  initASR: () => ipcRenderer.invoke('init-asr'),
+  // 语音识别 - 使用 Web Audio 方案（mode: 'A' 说英语 | 'B' 说中文）
+  initASR: (mode) => ipcRenderer.invoke('init-asr', mode),
   feedAudio: (samples) => ipcRenderer.invoke('feed-audio', Array.from(samples)),
   stopASR: () => ipcRenderer.invoke('stop-asr'),
   onASRResult: (callback) => {

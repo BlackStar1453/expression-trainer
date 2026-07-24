@@ -270,9 +270,10 @@ ipcMain.handle('close-current-window', (event) => {
 });
 
 // 语音识别相关 - Web Audio方案
-ipcMain.handle('init-asr', async () => {
+// mode: 'A'（说英语，用英文 zipformer）| 'B'（说中文，用中英双语 paraformer）
+ipcMain.handle('init-asr', async (event, mode) => {
   try {
-    await initASR();
+    await initASR(mode);
     asrReady = true;
     return { success: true };
   } catch (error) {
