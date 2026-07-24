@@ -301,11 +301,24 @@ class ExpressionTrainer {
   async requestCorrection(sentence) {
     if (!sentence || !sentence.trim()) return;
     const existingTags = [...new Set([...this.registryTags, ...this.sessionTags])];
-    const result = await window.api.getSentenceCorrection(sentence, existingTags);
-    if (!result || !result.success) return;
+
+    // 句子送出即出现占位卡（转圈 + 原句），AI 回来后原位收尾——LLM 等待可见化
+    const pending = this._insertPendingCard(sentence, '正在纠错…');
+    let result = null;
+    try {
+      result = await window.api.getSentenceCorrection(sentence, existingTags);
+    } catch (_) { /* 下面统一走失败收尾 */ }
+    if (!result || !result.success) {
+      this._resolvePendingCard(pending, '⚠️ 纠错失败，已跳过', false);
+      return;
+    }
 
     const c = result.correction;
-    if (!c || !c.hasError) return;   // 整句地道 → 不出卡片，不刷屏
+    if (!c || !c.hasError) {
+      // 整句地道 → 占位卡变 ✓ 短暂停留后淡出（不留卡刷屏）
+      this._resolvePendingCard(pending, '✓ 这句很地道', true);
+      return;
+    }
 
     // 记录标签（生长式：新标签并入本场集合）
     (c.tags || []).forEach(t => this.sessionTags.add(t));
@@ -318,10 +331,38 @@ class ExpressionTrainer {
       timestamp: Date.now()
     };
     this.corrections.push(entry);
-    this.renderCorrectionCard(entry);
+    this.renderCorrectionCard(entry, pending);
   }
 
-  renderCorrectionCard(entry) {
+  // ===== LLM 等待占位卡 =====
+
+  /** 插入一张「转圈占位卡」，返回元素供后续原位替换/收尾 */
+  _insertPendingCard(text, label) {
+    const el = document.createElement('div');
+    el.className = 'pending-card';
+    el.innerHTML = `
+      <div class="pc-row"><span class="pc-spinner"></span><span class="pc-label">${this.escapeHtml(label)}</span></div>
+      <div class="pc-text">${this.escapeHtml(text)}</div>
+    `;
+    this.feedbackContent.insertBefore(el, this.feedbackContent.firstChild);
+    return el;
+  }
+
+  /** 占位卡轻收尾：变成一条简短结果（✓/⚠️），停留片刻后淡出移除 */
+  _resolvePendingCard(el, message, ok) {
+    if (!el || !el.isConnected) return; // 会话已清空（如切模式）→ 迟到结果直接丢弃
+    el.classList.add(ok ? 'done' : 'failed');
+    const row = el.querySelector('.pc-row');
+    if (row) row.innerHTML = `<span class="pc-label">${this.escapeHtml(message)}</span>`;
+    setTimeout(() => {
+      el.classList.add('fade');
+      setTimeout(() => el.remove(), 400);
+    }, 1600);
+  }
+
+  renderCorrectionCard(entry, pendingEl = null) {
+    // 有占位卡且会话已被清空（如切模式）→ 迟到结果直接丢弃，不复活旧会话内容
+    if (pendingEl && !pendingEl.isConnected) return;
     const card = document.createElement('div');
     card.className = 'correction-card';
 
@@ -343,7 +384,9 @@ class ExpressionTrainer {
 
     this._wireSpeakButton(card, '[data-tts="corrected"]', entry.corrected);
 
-    this.feedbackContent.insertBefore(card, this.feedbackContent.firstChild);
+    // 有占位卡则原位替换（保持与说话顺序一致的落点），否则按旧逻辑插入
+    if (pendingEl) pendingEl.replaceWith(card);
+    else this.feedbackContent.insertBefore(card, this.feedbackContent.firstChild);
     while (this.feedbackContent.children.length > 20) {
       this.feedbackContent.removeChild(this.feedbackContent.lastChild);
     }
@@ -393,8 +436,17 @@ class ExpressionTrainer {
   async requestTranslation(sentence) {
     if (!sentence || !sentence.trim()) return;
     const existingTags = [...new Set([...this.registryTags, ...this.sessionTags])];
-    const result = await window.api.getTranslation(sentence, existingTags);
-    if (!result || !result.success || !result.card) return;
+
+    // 与纠错同款：句子送出即出占位卡，翻译回来原位换真卡
+    const pending = this._insertPendingCard(sentence, '正在翻译…');
+    let result = null;
+    try {
+      result = await window.api.getTranslation(sentence, existingTags);
+    } catch (_) { /* 下面统一走失败收尾 */ }
+    if (!result || !result.success || !result.card) {
+      this._resolvePendingCard(pending, '⚠️ 翻译失败，已跳过', false);
+      return;
+    }
 
     const card = result.card;
     (card.tags || []).forEach(t => this.sessionTags.add(t));
@@ -408,10 +460,12 @@ class ExpressionTrainer {
       timestamp: Date.now()
     };
     this.bcards.push(entry);
-    this.renderLearningCard(entry);
+    this.renderLearningCard(entry, pending);
   }
 
-  renderLearningCard(entry) {
+  renderLearningCard(entry, pendingEl = null) {
+    // 会话已清空（切模式）→ 迟到结果丢弃
+    if (pendingEl && !pendingEl.isConnected) return;
     const card = document.createElement('div');
     card.className = 'learning-card';
 
@@ -440,7 +494,9 @@ class ExpressionTrainer {
     this._wireSpeakButton(card, '[data-tts="en"]', entry.en);
     const btn = card.querySelector('.btn-shadow');
     btn.addEventListener('click', () => this.armShadow(entry, btn));
-    this.feedbackContent.insertBefore(card, this.feedbackContent.firstChild);
+    // 有占位卡则原位替换，否则按旧逻辑插入
+    if (pendingEl) pendingEl.replaceWith(card);
+    else this.feedbackContent.insertBefore(card, this.feedbackContent.firstChild);
 
     // 学习卡的地道英文同样预合成，点 🔊 即播
     if (window.tts && window.tts.prefetch) {
