@@ -13,7 +13,7 @@
 
 ## 功能
 
-- 🎤 **实时语音识别**：基于 Sherpa-ONNX 中英双语模型，完全离线（Mode A 识别英语、Mode B 识别中文，同一模型）
+- 🎤 **实时语音识别**：基于 Sherpa-ONNX，完全离线，**按模式选模型** —— Mode A（说英语）用英文专用 streaming zipformer，Mode B（说中文）用中英双语 streaming paraformer
 - ✏️ **Mode A 按句纠错卡**：原句 → 地道改写 → 中文说明 → 问题标签
 - 📊 **六维结课报告**：语法准确性 / 地道度 / 填充词 / 词汇丰富度 / 句式多样性 / 亮点
 - 📖 **Mode B 学习卡 + 跟读环**：中文原句 → 地道英文 → 讲解 → 🎤 跟读 → 词级 diff（对绿/漏错红）+ 匹配度，自定节奏 🔁 再读一次
@@ -30,9 +30,13 @@ cd expression-trainer
 npm install
 ```
 
-### 2. 下载语音识别模型
+### 2. 下载语音识别模型（两种模式各一个）
 
-需要 Sherpa-ONNX 的 streaming paraformer 中英双语模型：
+> 模型二进制已被 `.gitignore` 忽略，需自行下载到 `models/`。两个模型都下载后才能两种模式都用。
+
+#### 2a. 中英双语模型（Mode B 说中文，也是默认兜底）
+
+Sherpa-ONNX 的 streaming paraformer 中英双语模型：
 
 ```bash
 cd models
@@ -40,7 +44,7 @@ wget https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-o
 tar xvf sherpa-onnx-streaming-paraformer-bilingual-zh-en.tar.bz2
 ```
 
-下载后 `models/` 应包含：
+下载后应包含：
 
 ```
 models/sherpa-onnx-streaming-paraformer-bilingual-zh-en/
@@ -48,6 +52,29 @@ models/sherpa-onnx-streaming-paraformer-bilingual-zh-en/
 ├── decoder.int8.onnx
 └── tokens.txt
 ```
+
+#### 2b. 下载英文识别模型 (Mode A)
+
+Mode A（说英语）改用**英文专用 streaming zipformer（transducer）**模型，英文识别更准。用 int8 变体：
+
+```bash
+cd models
+wget https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-en-2023-06-21.tar.bz2
+tar xvf sherpa-onnx-streaming-zipformer-en-2023-06-21.tar.bz2
+```
+
+下载后应包含（本项目只用其中的 int8 三件套 + tokens）：
+
+```
+models/sherpa-onnx-streaming-zipformer-en-2023-06-21/
+├── encoder-epoch-99-avg-1.int8.onnx
+├── decoder-epoch-99-avg-1.int8.onnx
+├── joiner-epoch-99-avg-1.int8.onnx
+├── tokens.txt
+└── test_wavs/            # 自带英文测试音频（可选，用于验证）
+```
+
+> 若只下了双语模型没下英文模型，切到 Mode A 录音时会报「模型文件未找到」并提示到此章节下载。
 
 ### 3. 启动
 
