@@ -30,8 +30,7 @@
 3. Mode A 报告 6 维：语法准确性 / 地道度 / 填充词 / 词汇丰富度 / 句式多样性 / 亮点。
 4. Chinglish 检测全交 AI prompt，不做本地硬编码错误表。
 5. Mode B **跟读进 v1**（重点是让用户读出来）；跟读比对用**本地词级 diff**，不逐次调 AI。
-6. ASR **复用现有 `paraformer-bilingual-zh-en` 双语模型**：Mode A 识别英语、Mode B 识别中文，同一模型全覆盖，不换。
-   - ⚠️ 已知风险：双语模型英文识别若不够准 → Mode A 纠错会基于错误文本。切片 1 完成后尽早实测，不行再给 Mode A 换英文专用模型。
+6. ~~ASR 复用现有 `paraformer-bilingual-zh-en` 双语模型~~ **已被 issue #2 取代（2026-07-24）**：真机实测证实双语模型英文识别毛糙，Mode A 已换**英文专用 streaming zipformer**（`sherpa-onnx-streaming-zipformer-en-2023-06-21` int8，transducer）。**按模式选模型**：`initASR(mode)`，'A'→en、'B'→bilingual，切换时按需 reload（同种复用/异种拆建，`lib/asr.js` 模型注册表）。Mode B 行为逐字节不变。
 7. Git：在 fork（`BlackStar1453/expression-trainer`）的 `feat/english-mode` 分支开发，切片自动 commit，push 前问用户。
 
 ## 切片计划（全部完成 ✅）
@@ -45,8 +44,13 @@
 7. ✅ **打磨**：清理废弃中文实时反馈代码、更新 README。
 8. ✅ **Claude 订阅 provider（CLI）**：用 `claude -p` 常驻子进程免 key 调用，设为默认。
 
-**测试**：纯逻辑 Node 单测 + 集成，全绿 —— lexicon 16 · correction 10 · storage 17 · translation 10 · diff 12 · 集成 17 · claude 路由 9 · **claude 真机 e2e 5**。
-**已验证真机**：ASR 模型加载 + 真实转写；claude 订阅 provider 冷 7.7s→暖 3.0s，纠错/翻译结构化输出正确。
+**测试（更正 2026-07-24）**：切片 1-8 时代声称的测试套件（lexicon 16 · correction 10 …）**从未提交进 git**（所有分支历史均无测试文件），系当时会话记录失实。现有真实套件从 issues #2/#3 起 bootstrap：`npm test` = `node --test test/*.test.js`，**asr 9 + tts 19 = 28 全绿**；另有 `test/integration-en-asr.js`（需模型，真加载转写 + en↔bilingual 换模型验证）与 `scripts/tts-edge-check.js`（需联网，Edge 合成检查），二者故意不进 `npm test`。
+**已验证真机**：英文 zipformer 真加载 + test_wavs 转写逐字正确（16k）；en↔bilingual 换模型拆建后识别正常；claude 订阅 provider 冷 7.7s→暖 3.0s，纠错/翻译结构化输出正确。
+
+## Issues #2 + #3（2026-07-24 完成，均经独立 agent 评审）
+
+- **#2 Mode A 英文专用 ASR**（`feat/asr-en-model`，5 slices）：见「关键决策」6。模型下载：GitHub 整包 tarball 在受限网络下反复截断，**改从 HuggingFace 单抓 int8 三件套更稳**（encoder 188MB + decoder 527KB + joiner 253KB）。评审反馈已落地：checkModels 前置（缺模型不毁旧引擎）、换模型分支补集成覆盖、原生内存滞留（addon 无 free，~190MB 等 GC）已注释说明。
+- **#3 TTS 朗读**（`feat/tts-speak`，6 slices）：纠错卡（原句+地道句）与学习卡（英文句）加 🔊，统一 `window.tts.speak()`。双引擎：**webspeech 默认**（离线零依赖）/ **edge 可选**（`msedge-tts` 2.0.7 免 key，主进程 `lib/tts.js` 合成 mp3 data URL，**3s 超时自动回退本地语音 + 轻提示**——适配受限网络）。设置页配引擎/语音/语速（0.5-2.0x，两引擎同语义）。评审反馈已落地：**SSML XML 转义**（含 & / < 的句子不再被 Edge 拒绝且误报网络问题）、语音未加载完不覆盖已存选择、武装跟读先停 TTS（尾音不混进跟读识别）、超时竞态守卫。共享纯函数在 `lib/tts-helpers.js`（UMD，node+渲染两用）。
 
 ## AI 后端：Claude 订阅（CLI）—— slice 8
 
