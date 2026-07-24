@@ -192,6 +192,54 @@ button, input, select, .subtitle-scroll, .feedback-content, .modal-body {
 .lc-en { font-size: 15px; color: #4dabf7; font-weight: 500; line-height: 1.5; }
 .lc-note { font-size: 12px; color: #999; margin-top: 6px; line-height: 1.5; }
 
+/* 🔊 朗读按钮（卡片内，行内小图标） */
+.tts-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  margin-left: 6px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.55;
+  text-decoration: none;   /* 抵消 .cc-original 的 line-through */
+  transition: opacity 0.15s, background 0.15s, transform 0.1s;
+}
+.tts-btn:hover { opacity: 1; background: rgba(229, 0, 126, 0.15); }
+.tts-btn:active { transform: scale(0.9); }
+/* 让原句/地道句的文本各占一行、按钮跟在行尾 */
+.cc-original .cc-text, .cc-corrected .cc-text, .lc-en .lc-en-text { vertical-align: middle; }
+
+/* TTS 回退轻提示（右下角，3s 自动消失，不打断操作） */
+.tts-notice {
+  position: fixed;
+  right: 16px;
+  bottom: 70px;
+  z-index: 2000;
+  max-width: 260px;
+  padding: 8px 14px;
+  background: #1a1a1a;
+  border: 1px solid #E5007E55;
+  border-radius: 8px;
+  color: #ddd;
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+  transition: opacity 0.25s, transform 0.25s;
+}
+.tts-notice.show { opacity: 1; transform: none; }
+
 /* 跟读环（slice 6） */
 .lc-shadow { margin-top: 10px; padding-top: 8px; border-top: 1px dashed #2a2a2a; }
 .lc-shadow-actions { display: flex; gap: 6px; align-items: center; margin-top: 6px; }

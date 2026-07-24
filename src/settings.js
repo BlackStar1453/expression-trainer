@@ -61,6 +61,14 @@ class SettingsPage {
     this.groupCustomModel = document.getElementById('group-custom-model');
     this.groupClaudeCli = document.getElementById('group-claude-cli');
 
+    // TTS 朗读设置
+    this.ttsProviderSelect = document.getElementById('tts-provider');
+    this.ttsProviderHint = document.getElementById('tts-provider-hint');
+    this.ttsVoiceSelect = document.getElementById('tts-voice');
+    this.ttsVoiceHint = document.getElementById('tts-voice-hint');
+    this.ttsRateInput = document.getElementById('tts-rate');
+    this.ttsRateVal = document.getElementById('tts-rate-val');
+
     this.bindEvents();
     this.loadSettings();
   }
@@ -68,6 +76,77 @@ class SettingsPage {
   bindEvents() {
     this.providerSelect.addEventListener('change', () => this.onProviderChange());
     this.btnSave.addEventListener('click', () => this.save());
+
+    // TTS
+    this.ttsProviderSelect.addEventListener('change', () => this.onTtsProviderChange());
+    this.ttsRateInput.addEventListener('input', () => this.updateRateLabel());
+    // 某些平台 getVoices() 首次为空，voiceschanged 后才有 → 到齐再刷新
+    if (window.speechSynthesis) {
+      window.speechSynthesis.onvoiceschanged = () => {
+        if (this.ttsProviderSelect.value === 'webspeech') this.populateTtsVoices('webspeech');
+      };
+      window.speechSynthesis.getVoices();   // 触发加载
+    }
+  }
+
+  // ===== TTS 朗读设置 =====
+
+  updateRateLabel() {
+    this.ttsRateVal.textContent = Number(this.ttsRateInput.value).toFixed(1) + 'x';
+  }
+
+  loadTtsSettings() {
+    const tts = (this.settings && this.settings.tts) || {};
+    this.ttsProviderSelect.value = tts.provider === 'edge' ? 'edge' : 'webspeech';
+    this.ttsRateInput.value = Number.isFinite(Number(tts.rate)) ? Number(tts.rate) : 1.0;
+    this.updateRateLabel();
+    this.onTtsProviderChange();
+  }
+
+  onTtsProviderChange() {
+    const provider = this.ttsProviderSelect.value;
+    this.ttsProviderHint.textContent = provider === 'edge'
+      ? 'Microsoft Edge 神经语音，音质更自然；需联网，离线会自动回退系统语音。'
+      : '系统内置语音，离线可用，随开随读。';
+    this.populateTtsVoices(provider);
+  }
+
+  getEnglishSystemVoices() {
+    if (!window.speechSynthesis) return [];
+    return window.speechSynthesis.getVoices().filter(v => /^en([-_]|$)/i.test(v.lang));
+  }
+
+  populateTtsVoices(provider) {
+    const sel = this.ttsVoiceSelect;
+    sel.innerHTML = '';
+    const addOption = (value, label) => {
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = label;
+      sel.appendChild(opt);
+    };
+    const tts = (this.settings && this.settings.tts) || {};
+
+    if (provider === 'edge') {
+      const list = (window.TtsHelpers && window.TtsHelpers.EDGE_VOICES) || [];
+      list.forEach(v => addOption(v.value, v.label));
+      if (tts.edgeVoice) sel.value = tts.edgeVoice;
+      this.ttsVoiceHint.textContent = '在线合成，需联网。';
+      return;
+    }
+
+    const voices = this.getEnglishSystemVoices();
+    if (voices.length === 0) {
+      addOption('', '正在加载系统语音…');
+      this.ttsVoiceHint.textContent = '若一直为空，说明系统未安装英文语音。';
+      return;   // voiceschanged 到齐后会再次调用本函数
+    }
+    voices.forEach(v => addOption(v.voiceURI, `${v.name} (${v.lang})`));
+    const chosen = window.TtsHelpers
+      ? window.TtsHelpers.pickEnglishVoice(voices, tts.webspeechVoice)
+      : null;
+    if (chosen) sel.value = chosen.voiceURI;
+    this.ttsVoiceHint.textContent = '系统内置英文语音（来自系统语音设置）。';
   }
 
   async loadSettings() {
@@ -77,6 +156,9 @@ class SettingsPage {
 
     // 先填充模型列表再加载字段值
     this.onProviderChange();
+
+    // 加载 TTS 朗读设置
+    this.loadTtsSettings();
   }
 
   /** 加载指定 provider 的配置到表单字段 */
@@ -170,6 +252,19 @@ class SettingsPage {
         customModel: ''
       };
     }
+
+    // 持久化 TTS 朗读设置（保留另一 provider 已存的语音选择）
+    settings.tts = settings.tts || {};
+    const ttsProvider = this.ttsProviderSelect.value === 'edge' ? 'edge' : 'webspeech';
+    settings.tts.provider = ttsProvider;
+    settings.tts.rate = Number(this.ttsRateInput.value);
+    settings.tts.lang = settings.tts.lang || 'en-US';
+    if (ttsProvider === 'edge') {
+      settings.tts.edgeVoice = this.ttsVoiceSelect.value;
+    } else if (this.getEnglishSystemVoices().length > 0) {
+      settings.tts.webspeechVoice = this.ttsVoiceSelect.value;
+    }
+    // else：系统语音还没加载完（下拉只有占位项），保留之前存的选择，别覆盖成 ''
 
     await window.api.saveSettings(settings);
 

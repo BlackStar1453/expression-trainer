@@ -42,4 +42,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // Mode B 跟读词级 diff
   diffWords: (target, spoken) => ipcRenderer.invoke('diff-words', { target, spoken }),
+
+  // TTS 'edge' provider：主进程合成 → { success, dataUrl } 或 { success:false, error }
+  ttsSynth: (text, voice, rate) => ipcRenderer.invoke('tts-synth', { text, voice, rate }),
 });

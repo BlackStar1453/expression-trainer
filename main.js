@@ -7,6 +7,8 @@ const { sendFeedback, sendReport, testConnection, sendCorrection, sendTranslatio
 const storage = require('./lib/storage');
 const { diffWords } = require('./lib/diff');
 const claudeCli = require('./lib/claude-cli');
+const tts = require('./lib/tts');
+const { DEFAULT_TTS } = require('./lib/tts-helpers');
 
 // 覆盖应用显示名称（菜单栏、Dock、任务栏、窗口标题）
 app.setName('英语表达训练');
@@ -69,6 +71,7 @@ function loadSettings() {
       if (raw.ollamaUrl) migrated.providers.ollama.ollamaUrl = raw.ollamaUrl;
       if (raw.customEndpoint) migrated.providers.custom.baseUrl = raw.customEndpoint;
       if (raw.customModel) migrated.providers.custom.model = raw.customModel;
+      ensureTtsDefaults(migrated);
       saveSettings(migrated);
       return migrated;
     }
@@ -80,17 +83,23 @@ function loadSettings() {
         raw.providers[key] = { ...DEFAULT_PROVIDER_CONFIGS[key], ...raw.providers[key] };
       }
     }
-    return raw;
+    return ensureTtsDefaults(raw);
   }
-  return {
+  return ensureTtsDefaults({
     provider: 'claude-cli',
     providers: JSON.parse(JSON.stringify(DEFAULT_PROVIDER_CONFIGS))
-  };
+  });
 }
 
 function saveSettings(settings) {
   const settingsPath = getSettingsPath();
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+}
+
+/** Ensure the TTS block exists with sane defaults (provider 'webspeech'). */
+function ensureTtsDefaults(settings) {
+  settings.tts = { ...DEFAULT_TTS, ...(settings.tts || {}) };
+  return settings;
 }
 
 /** 获取当前选中 provider 的配置 */
@@ -156,7 +165,7 @@ function createSettingsWindow() {
 
   settingsWindow = new BrowserWindow({
     width: 600,
-    height: 500,
+    height: 680,
     resizable: false,
     backgroundColor: '#1a1a1a',
     titleBarStyle: 'hiddenInset',
@@ -352,6 +361,18 @@ ipcMain.handle('get-tags', () => {
 // Mode B 跟读：本地词级 diff（离线，不调 AI）
 ipcMain.handle('diff-words', (event, { target, spoken }) => {
   return diffWords(target, spoken);
+});
+
+// TTS v2 'edge' provider：主进程合成 mp3，返回 data URL 供渲染进程 <audio> 播放。
+// 有超时护栏；失败时渲染进程回退到离线 Web Speech（'webspeech' 完全不走这里）。
+ipcMain.handle('tts-synth', async (event, { text, voice, rate }) => {
+  try {
+    const buf = await tts.synthEdge(text, { voice, rate });
+    const dataUrl = 'data:audio/mpeg;base64,' + buf.toString('base64');
+    return { success: true, dataUrl };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
 });
 
 // Mode A: 按句纠错（结构化返回 + 标签）
