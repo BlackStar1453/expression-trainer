@@ -346,6 +346,12 @@ class ExpressionTrainer {
     while (this.feedbackContent.children.length > 20) {
       this.feedbackContent.removeChild(this.feedbackContent.lastChild);
     }
+
+    // 卡片一出现就后台预合成（edge 引擎下），点 🔊 时即点即播
+    if (window.tts && window.tts.prefetch) {
+      window.tts.prefetch(entry.corrected);
+      window.tts.prefetch(entry.original);
+    }
   }
 
   escapeHtml(str) {
@@ -431,6 +437,11 @@ class ExpressionTrainer {
     const btn = card.querySelector('.btn-shadow');
     btn.addEventListener('click', () => this.armShadow(entry, btn));
     this.feedbackContent.insertBefore(card, this.feedbackContent.firstChild);
+
+    // 学习卡的地道英文同样预合成，点 🔊 即播
+    if (window.tts && window.tts.prefetch) {
+      window.tts.prefetch(entry.en);
+    }
   }
 
   // ===== 跟读环 =====

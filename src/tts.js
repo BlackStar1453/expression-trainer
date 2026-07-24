@@ -13,6 +13,8 @@ class TtsController {
     this.settings = null;       // resolveTtsSettings 结果
     this._noticeTimer = null;
     this._gen = 0;              // 单调递增的“朗读代”，用于打断在途 edge 合成，避免叠音
+    this._cache = new Map();    // edge 音频缓存：`voice|rate|text` → dataUrl（插入序，超限淘汰最旧）
+    this._inflight = new Map(); // 在途合成去重：同 key 的预合成与点击共用一个 Promise
     this._loadSettings();
     // 设置窗口保存后主窗口重新获得焦点 → 刷新一次，免重启即可生效
     window.addEventListener('focus', () => this._loadSettings());
@@ -94,18 +96,57 @@ class TtsController {
     window.speechSynthesis.speak(u);
   }
 
+  /**
+   * 预合成：卡片一出现就在后台合成音频进缓存，用户点 🔊 时即点即播。
+   * 只在 edge 引擎下生效（webspeech 本地即时无需预热）；失败静默——
+   * 点击时会再试并走既有回退路径。fire-and-forget，不阻塞调用方。
+   */
+  prefetch(text) {
+    (async () => {
+      const H = window.TtsHelpers;
+      const clean = H.normalizeSpeakText(text);
+      if (!clean) return;
+      if (!this.settings) await this._loadSettings();
+      const s = this.settings;
+      if (!s || s.provider !== 'edge') return;
+      try { await this._synthCached(clean, s.voice, s.rate); } catch (_) { /* 点击时再回退 */ }
+    })();
+  }
+
+  /** 合成并缓存（在途去重）：命中缓存立即返回 dataUrl */
+  _synthCached(text, voice, rate) {
+    const key = `${voice}|${rate}|${text}`;
+    if (this._cache.has(key)) return Promise.resolve(this._cache.get(key));
+    if (this._inflight.has(key)) return this._inflight.get(key);
+
+    const p = (async () => {
+      const res = await window.api.ttsSynth(text, voice, rate);
+      if (!res || !res.success || !res.dataUrl) {
+        throw new Error((res && res.error) || 'edge synth failed');
+      }
+      // 简单容量上限：Map 保持插入序，超限淘汰最旧（每条 mp3 base64 约 20-50KB）
+      if (this._cache.size >= 120) {
+        this._cache.delete(this._cache.keys().next().value);
+      }
+      this._cache.set(key, res.dataUrl);
+      return res.dataUrl;
+    })();
+    this._inflight.set(key, p);
+    p.finally(() => this._inflight.delete(key));
+    return p;
+  }
+
   /** @returns {Promise<boolean>} 是否已处理（true=已播放或已被更新的朗读接管；false=失败需回退） */
   async _speakEdge(text, voice, rate, gen) {
     try {
-      const res = await window.api.ttsSynth(text, voice, rate);
+      const dataUrl = await this._synthCached(text, voice, rate); // 预合成命中时零等待
       if (gen !== this._gen) return true;   // 合成期间被打断，交给更新的朗读，不再播放/回退
-      if (!res || !res.success || !res.dataUrl) return false;
-      const audio = new Audio(res.dataUrl);
+      const audio = new Audio(dataUrl);
       this.audio = audio;
       await audio.play();   // 若被浏览器策略拒绝会 reject → 回退
       return true;
     } catch (_) {
-      return false;
+      return gen !== this._gen; // 被打断则视为已处理；否则交给调用方回退
     }
   }
 
