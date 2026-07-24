@@ -12,6 +12,7 @@ class TtsController {
     this.audio = null;          // 当前播放中的 HTMLAudioElement（edge）
     this.settings = null;       // resolveTtsSettings 结果
     this._noticeTimer = null;
+    this._gen = 0;              // 单调递增的“朗读代”，用于打断在途 edge 合成，避免叠音
     this._loadSettings();
     // 设置窗口保存后主窗口重新获得焦点 → 刷新一次，免重启即可生效
     window.addEventListener('focus', () => this._loadSettings());
@@ -40,8 +41,9 @@ class TtsController {
     return window.speechSynthesis.getVoices().filter(v => /^en([-_]|$)/i.test(v.lang));
   }
 
-  /** 打断当前朗读（Web Speech + edge <audio> 都停） */
+  /** 打断当前朗读（Web Speech + edge <audio> 都停），并作废任何在途 edge 合成 */
   stop() {
+    this._gen++;   // 作废在途合成：其回调发现代号变了就不再播放
     try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (_) {}
     if (this.audio) {
       try { this.audio.pause(); } catch (_) {}
@@ -65,11 +67,13 @@ class TtsController {
     const rate = opts.rate != null ? opts.rate : s.rate;
     const lang = opts.lang || s.lang || 'en-US';
 
-    this.stop();   // 打断任何正在进行的朗读，避免叠音
+    this.stop();          // 打断任何正在进行的朗读，避免叠音
+    const gen = this._gen; // 本次朗读的代号（stop 后捕获）
 
     if (s.provider === 'edge') {
-      const ok = await this._speakEdge(clean, s.voice, rate);
+      const ok = await this._speakEdge(clean, s.voice, rate, gen);
       if (ok) return;
+      if (gen !== this._gen) return;   // 已被更新的一次朗读接管，别再回退
       // 网络/超时失败 → 轻提示 + 回退 Web Speech
       this._notice('🔈 在线语音不可用，已用本地语音朗读');
       this._speakWeb(clean, s.voice, rate, lang);
@@ -90,10 +94,11 @@ class TtsController {
     window.speechSynthesis.speak(u);
   }
 
-  /** @returns {Promise<boolean>} 是否成功播放（失败则调用方回退） */
-  async _speakEdge(text, voice, rate) {
+  /** @returns {Promise<boolean>} 是否已处理（true=已播放或已被更新的朗读接管；false=失败需回退） */
+  async _speakEdge(text, voice, rate, gen) {
     try {
       const res = await window.api.ttsSynth(text, voice, rate);
+      if (gen !== this._gen) return true;   // 合成期间被打断，交给更新的朗读，不再播放/回退
       if (!res || !res.success || !res.dataUrl) return false;
       const audio = new Audio(res.dataUrl);
       this.audio = audio;
