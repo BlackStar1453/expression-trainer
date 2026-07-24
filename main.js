@@ -108,6 +108,18 @@ function getCurrentProviderSettings(settings) {
   return config || DEFAULT_PROVIDER_CONFIGS[settings.provider] || {};
 }
 
+/** LLM 预热（与 TTS warmup 同思路）：claude-cli 引擎下提前 spawn 常驻进程并
+ *  跑一轮微型 ping，把 ~10s 冷启动移出用户路径。已暖时是 no-op，失败静默。 */
+function warmClaudeIfActive() {
+  try {
+    const settings = loadSettings();
+    if (settings.provider !== 'claude-cli') return;
+    const cfg = getCurrentProviderSettings(settings);
+    claudeCli.warmup({ model: cfg.model, binPath: cfg.binPath })
+      .then((ok) => { if (ok) console.log('[LLM] claude 常驻进程预热完成'); });
+  } catch { /* 预热失败不影响正常使用 */ }
+}
+
 function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -225,6 +237,9 @@ app.whenReady().then(() => {
 
   createMainWindow();
 
+  // 启动即预热 LLM 常驻进程（第一张纠错/学习卡不再付 ~10s 冷启动）
+  warmClaudeIfActive();
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createMainWindow();
@@ -253,6 +268,8 @@ ipcMain.handle('get-settings', () => {
 
 ipcMain.handle('save-settings', (event, settings) => {
   saveSettings(settings);
+  // 设置变更（如换模型）后立即按新配置预热，避免下一句真请求付冷启动
+  warmClaudeIfActive();
   return { success: true };
 });
 
@@ -285,6 +302,8 @@ ipcMain.handle('init-asr', async (event, mode) => {
   try {
     await initASR(mode);
     asrReady = true;
+    // 开始录制 = 马上会有句子送 LLM：顺手预热（已暖时是 no-op）
+    warmClaudeIfActive();
     return { success: true };
   } catch (error) {
     return { success: false, error: error.message };
