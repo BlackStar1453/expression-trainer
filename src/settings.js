@@ -261,9 +261,10 @@ class SettingsPage {
     settings.tts.lang = settings.tts.lang || 'en-US';
     if (ttsProvider === 'edge') {
       settings.tts.edgeVoice = this.ttsVoiceSelect.value;
-    } else {
+    } else if (this.getEnglishSystemVoices().length > 0) {
       settings.tts.webspeechVoice = this.ttsVoiceSelect.value;
     }
+    // else：系统语音还没加载完（下拉只有占位项），保留之前存的选择，别覆盖成 ''
 
     await window.api.saveSettings(settings);
 

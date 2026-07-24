@@ -9,8 +9,23 @@ const {
   RATE_MAX,
   resolveTtsSettings,
   pickEnglishVoice,
-  normalizeSpeakText
+  normalizeSpeakText,
+  escapeXml
 } = require('../lib/tts-helpers');
+
+// ===== escapeXml（edge 合成前的 SSML 转义，评审 finding 1）=====
+
+test('escapeXml: & < > " \' 全部转义，普通英文原样通过', () => {
+  assert.equal(escapeXml('Our R&D team shipped it.'), 'Our R&amp;D team shipped it.');
+  assert.equal(escapeXml('a < b > c'), 'a &lt; b &gt; c');
+  assert.equal(escapeXml(`say "hi" & don't stop`), 'say &quot;hi&quot; &amp; don&apos;t stop');
+  assert.equal(escapeXml('A plain English sentence.'), 'A plain English sentence.');
+});
+
+test('escapeXml: null/undefined → 空串，不抛错', () => {
+  assert.equal(escapeXml(null), '');
+  assert.equal(escapeXml(undefined), '');
+});
 
 // ===== resolveTtsSettings =====
 

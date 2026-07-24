@@ -436,6 +436,8 @@ class ExpressionTrainer {
 
   armShadow(entry, btn) {
     if (!this.isRecording) { this.showError('请先开始录制，再点跟读'); return; }
+    // 武装跟读 = 用户马上要对麦克风朗读：停掉进行中的 TTS，免得尾音被当成跟读内容识别
+    if (window.tts) window.tts.stop();
     // 解除上一个武装
     if (this.shadowBtn && this.shadowBtn !== btn) {
       this.shadowBtn.classList.remove('armed');
