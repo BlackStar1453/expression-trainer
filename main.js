@@ -3,10 +3,13 @@ const path = require('path');
 const fs = require('fs');
 const { initASR, feedAudio, stopRecognition } = require('./lib/asr');
 const { loadLexicon, analyzeText } = require('./lib/lexicon');
-const { sendFeedback, sendReport, testConnection } = require('./lib/ai-feedback');
+const { sendFeedback, sendReport, testConnection, sendCorrection, sendTranslation } = require('./lib/ai-feedback');
+const storage = require('./lib/storage');
+const { diffWords } = require('./lib/diff');
+const claudeCli = require('./lib/claude-cli');
 
 // 覆盖应用显示名称（菜单栏、Dock、任务栏、窗口标题）
-app.setName('宇宙无敌表达训练');
+app.setName('英语表达训练');
 
 let mainWindow;
 let settingsWindow;
@@ -32,6 +35,7 @@ function saveCustomPrompt(data) {
 
 // 各 Provider 的默认配置
 const DEFAULT_PROVIDER_CONFIGS = {
+  'claude-cli': { model: 'sonnet', binPath: '' },
   openai: { apiKey: '', model: 'gpt-4o-mini' },
   deepseek: { apiKey: '', model: 'deepseek-chat' },
   ollama: { ollamaUrl: 'http://localhost:11434', model: 'qwen2.5:7b' },
@@ -79,7 +83,7 @@ function loadSettings() {
     return raw;
   }
   return {
-    provider: 'deepseek',
+    provider: 'claude-cli',
     providers: JSON.parse(JSON.stringify(DEFAULT_PROVIDER_CONFIGS))
   };
 }
@@ -100,7 +104,7 @@ function createMainWindow() {
     width: 1200,
     height: 800,
     backgroundColor: '#000000',
-    title: '宇宙无敌表达训练',
+    title: '英语表达训练',
     titleBarStyle: 'hiddenInset',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -207,6 +211,9 @@ app.whenReady().then(() => {
   // 加载词库
   loadLexicon();
 
+  // 初始化学习数据存储
+  storage.initStorage(path.join(app.getPath('userData'), 'learning-data'));
+
   createMainWindow();
 
   app.on('activate', () => {
@@ -220,6 +227,11 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+// 退出时关掉常驻 claude 子进程
+app.on('before-quit', () => {
+  claudeCli.shutdown();
 });
 
 // IPC Handlers
@@ -322,12 +334,55 @@ ipcMain.handle('get-realtime-feedback', async (event, text) => {
   }
 });
 
-ipcMain.handle('get-final-report', async (event, { fullText, stats }) => {
+// 学习数据存储
+ipcMain.handle('save-session', (event, session) => {
+  try {
+    const paths = storage.saveSession(session);
+    return { success: true, ...paths };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-tags', () => {
+  return storage.loadTags();
+});
+
+// Mode B 跟读：本地词级 diff（离线，不调 AI）
+ipcMain.handle('diff-words', (event, { target, spoken }) => {
+  return diffWords(target, spoken);
+});
+
+// Mode A: 按句纠错（结构化返回 + 标签）
+ipcMain.handle('get-sentence-correction', async (event, { sentence, existingTags }) => {
+  const settings = loadSettings();
+  const providerConfig = getCurrentProviderSettings(settings);
+  try {
+    const correction = await sendCorrection(sentence, { ...settings, ...providerConfig }, existingTags || []);
+    return { success: true, correction };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Mode B: 中译英学习卡（结构化返回 + 标签）
+ipcMain.handle('get-translation', async (event, { sentence, existingTags }) => {
+  const settings = loadSettings();
+  const providerConfig = getCurrentProviderSettings(settings);
+  try {
+    const card = await sendTranslation(sentence, { ...settings, ...providerConfig }, existingTags || []);
+    return { success: true, card };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-final-report', async (event, { fullText, stats, corrections }) => {
   const settings = loadSettings();
   const providerConfig = getCurrentProviderSettings(settings);
   const customPrompt = loadCustomPrompt();
   try {
-    const report = await sendReport(fullText, stats, { ...settings, ...providerConfig }, customPrompt);
+    const report = await sendReport(fullText, stats, { ...settings, ...providerConfig }, customPrompt, corrections || []);
     return { success: true, report };
   } catch (error) {
     return { success: false, error: error.message };

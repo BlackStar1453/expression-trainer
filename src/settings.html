@@ -148,11 +148,18 @@
     <div class="form-group">
       <label>AI 后端</label>
       <select id="provider">
+        <option value="claude-cli">Claude 订阅（无需 Key，推荐）</option>
         <option value="openai">OpenAI</option>
-        <option value="deepseek">DeepSeek（推荐）</option>
+        <option value="deepseek">DeepSeek</option>
         <option value="ollama">Ollama（本地）</option>
         <option value="custom">自定义 OpenAI 兼容</option>
       </select>
+    </div>
+
+    <div class="form-group conditional" id="group-claude-cli">
+      <label>claude 可执行文件路径（可选）</label>
+      <input type="text" id="claude-bin" placeholder="留空自动查找（如 ~/.local/bin/claude）">
+      <div class="hint">用你已登录的 Claude 订阅，无需 API Key。从终端 <code>npm start</code> 启动通常能自动找到。</div>
     </div>
 
     <div class="form-group conditional" id="group-apikey">

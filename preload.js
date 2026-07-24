@@ -28,9 +28,18 @@ contextBridge.exposeInMainWorld('api', {
 
   // AI反馈
   getRealtimeFeedback: (text) => ipcRenderer.invoke('get-realtime-feedback', text),
+  getSentenceCorrection: (sentence, existingTags) => ipcRenderer.invoke('get-sentence-correction', { sentence, existingTags }),
+  getTranslation: (sentence, existingTags) => ipcRenderer.invoke('get-translation', { sentence, existingTags }),
   getFinalReport: (data) => ipcRenderer.invoke('get-final-report', data),
   testLLMConnection: (settings) => ipcRenderer.invoke('test-llm-connection', settings),
 
   // 文件保存
   saveFile: (content, filename) => ipcRenderer.invoke('save-file', content, filename),
+
+  // 学习数据存储
+  saveSession: (session) => ipcRenderer.invoke('save-session', session),
+  getTags: () => ipcRenderer.invoke('get-tags'),
+
+  // Mode B 跟读词级 diff
+  diffWords: (target, spoken) => ipcRenderer.invoke('diff-words', { target, spoken }),
 });

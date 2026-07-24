@@ -1,0 +1,40 @@
+{
+  "_meta": {
+    "description": "English expression-training lexicon — fillers / hedges / vague→precise. Replaces the old Chinese emotion lexicon.",
+    "version": "1.0",
+    "note": "Used by lib/lexicon.js for offline local highlighting & stats in Mode A (speak English → get corrections)."
+  },
+
+  "fillers": [
+    "um", "uh", "er", "erm", "ah", "hmm",
+    "like", "you know", "i mean", "kind of", "sort of",
+    "basically", "actually", "literally", "you see"
+  ],
+
+  "hedges": [
+    "maybe", "perhaps", "probably", "possibly",
+    "i think", "i guess", "i suppose", "i believe", "i feel like",
+    "sort of", "kind of", "more or less",
+    "it seems", "somewhat", "a bit", "a little", "not sure", "might be"
+  ],
+
+  "vague_to_precise": {
+    "good":        ["great", "excellent", "outstanding", "superb", "impressive"],
+    "bad":         ["terrible", "awful", "poor", "dreadful", "disappointing"],
+    "nice":        ["pleasant", "delightful", "lovely", "wonderful", "charming"],
+    "big":         ["huge", "enormous", "massive", "substantial", "significant"],
+    "small":       ["tiny", "minor", "slight", "minimal", "modest"],
+    "happy":       ["delighted", "thrilled", "cheerful", "content", "joyful"],
+    "sad":         ["miserable", "downcast", "gloomy", "heartbroken", "dejected"],
+    "important":   ["crucial", "essential", "vital", "significant", "critical"],
+    "interesting": ["fascinating", "intriguing", "compelling", "captivating", "engaging"],
+    "beautiful":   ["stunning", "gorgeous", "exquisite", "breathtaking", "elegant"],
+    "difficult":   ["challenging", "demanding", "tough", "complex", "arduous"],
+    "easy":        ["simple", "effortless", "straightforward", "manageable", "painless"],
+    "a lot":       ["numerous", "plenty", "considerable", "abundant", "countless"],
+    "very good":   ["excellent", "superb", "outstanding"],
+    "thing":       ["item", "object", "matter", "aspect", "element"],
+    "stuff":       ["items", "materials", "belongings", "content", "matters"],
+    "get":         ["obtain", "receive", "acquire", "gain", "secure"]
+  }
+}
