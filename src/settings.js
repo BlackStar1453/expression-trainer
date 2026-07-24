@@ -61,6 +61,10 @@ class SettingsPage {
     this.groupCustomModel = document.getElementById('group-custom-model');
     this.groupClaudeCli = document.getElementById('group-claude-cli');
 
+    // 语音识别（断句）设置
+    this.asrPauseInput = document.getElementById('asr-pause');
+    this.asrPauseVal = document.getElementById('asr-pause-val');
+
     // TTS 朗读设置
     this.ttsProviderSelect = document.getElementById('tts-provider');
     this.ttsProviderHint = document.getElementById('tts-provider-hint');
@@ -80,6 +84,9 @@ class SettingsPage {
     this.providerSelect.addEventListener('change', () => this.onProviderChange());
     this.btnSave.addEventListener('click', () => this.save());
 
+    // 语音识别
+    this.asrPauseInput.addEventListener('input', () => this.updateAsrPauseLabel());
+
     // TTS
     this.ttsProviderSelect.addEventListener('change', () => this.onTtsProviderChange());
     this.ttsRateInput.addEventListener('input', () => this.updateRateLabel());
@@ -91,6 +98,21 @@ class SettingsPage {
       };
       window.speechSynthesis.getVoices();   // 触发加载
     }
+  }
+
+  // ===== 语音识别（断句）设置 =====
+
+  updateAsrPauseLabel() {
+    this.asrPauseVal.textContent = Number(this.asrPauseInput.value).toFixed(1) + 's';
+  }
+
+  loadAsrSettings() {
+    // resolveAsrSettings 负责缺省/越界钳制，与主进程同一套逻辑
+    const asr = window.SentenceBuffer
+      ? window.SentenceBuffer.resolveAsrSettings(this.settings)
+      : { pauseTolerance: 2.5 };
+    this.asrPauseInput.value = asr.pauseTolerance;
+    this.updateAsrPauseLabel();
   }
 
   // ===== TTS 朗读设置 =====
@@ -228,6 +250,9 @@ class SettingsPage {
     // 先填充模型列表再加载字段值
     this.onProviderChange();
 
+    // 加载语音识别（断句）设置
+    this.loadAsrSettings();
+
     // 加载 TTS 朗读设置
     this.loadTtsSettings();
   }
@@ -323,6 +348,12 @@ class SettingsPage {
         customModel: ''
       };
     }
+
+    // 持久化语音识别（断句）设置
+    settings.asr = settings.asr || {};
+    settings.asr.pauseTolerance = window.SentenceBuffer
+      ? window.SentenceBuffer.clampPauseTolerance(this.asrPauseInput.value)
+      : Number(this.asrPauseInput.value) || 2.5;
 
     // 持久化 TTS 朗读设置（保留另一 provider 已存的语音选择）
     settings.tts = settings.tts || {};

@@ -8,3 +8,5 @@ dist/
 demo-*.html
 prompt-playground.html
 listenhub-*.png
+
+.claude/

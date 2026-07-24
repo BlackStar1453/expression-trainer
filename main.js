@@ -9,6 +9,7 @@ const { diffWords } = require('./lib/diff');
 const claudeCli = require('./lib/claude-cli');
 const tts = require('./lib/tts');
 const { DEFAULT_TTS } = require('./lib/tts-helpers');
+const { DEFAULT_ASR } = require('./lib/sentence-buffer');
 
 // 覆盖应用显示名称（菜单栏、Dock、任务栏、窗口标题）
 app.setName('英语表达训练');
@@ -72,6 +73,7 @@ function loadSettings() {
       if (raw.customEndpoint) migrated.providers.custom.baseUrl = raw.customEndpoint;
       if (raw.customModel) migrated.providers.custom.model = raw.customModel;
       ensureTtsDefaults(migrated);
+      ensureAsrDefaults(migrated);
       saveSettings(migrated);
       return migrated;
     }
@@ -83,12 +85,12 @@ function loadSettings() {
         raw.providers[key] = { ...DEFAULT_PROVIDER_CONFIGS[key], ...raw.providers[key] };
       }
     }
-    return ensureTtsDefaults(raw);
+    return ensureAsrDefaults(ensureTtsDefaults(raw));
   }
-  return ensureTtsDefaults({
+  return ensureAsrDefaults(ensureTtsDefaults({
     provider: 'claude-cli',
     providers: JSON.parse(JSON.stringify(DEFAULT_PROVIDER_CONFIGS))
-  });
+  }));
 }
 
 function saveSettings(settings) {
@@ -99,6 +101,12 @@ function saveSettings(settings) {
 /** Ensure the TTS block exists with sane defaults (provider 'webspeech'). */
 function ensureTtsDefaults(settings) {
   settings.tts = { ...DEFAULT_TTS, ...(settings.tts || {}) };
+  return settings;
+}
+
+/** Ensure the ASR block exists（断句停顿容忍度等，issue #5）. */
+function ensureAsrDefaults(settings) {
+  settings.asr = { ...DEFAULT_ASR, ...(settings.asr || {}) };
   return settings;
 }
 
