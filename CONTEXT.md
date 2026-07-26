@@ -61,13 +61,17 @@
 - **LLM 等待占位卡**（`src/app.js`）：句子送出即插「转圈+原句」占位卡，返回后原位收尾——有错换真卡 / 整句地道变「✓ 这句很地道」淡出（补上设计有但从未实现的 ✓ 反馈）/ 失败「⚠️ 已跳过」淡出；会话清空后迟到结果直接丢弃（顺带修掉迟到复活隐患）。
 - **待办**：issue #4（卡片顺序应与字幕一致，新卡在下）。
 
-## Issue #5 断句机制优化（2026-07-24 完成，3 slices）
+## Issue #5 断句机制优化（2026-07-24 v1 → 07-26 v2 重构，5 slices）
 
 - **问题**：说话慢/停顿思考被 sherpa 端点检测（1.2s）拆成多个 final → 半句各出一张纠错卡，AI 对残句纠错无意义。
-- **方案**：**定稿缓冲层**（issue 首选项；sherpa 参数不动——引擎快出 final、缓冲层负责合并，两层职责清晰）。`lib/sentence-buffer.js`（UMD 同 tts-helpers，15 单测 fake clock 注入）：isFinal 先进缓冲，静默满「停顿容忍度」N 秒才 onCommit 定稿；窗口内新语音（interim `noteActivity` 挂起计时）→ 下一个 final 合并同一句。**纯时间判据**（两个 ASR 模型输出均无标点，标点/连接词启发式不可用）。
+- **v1 教训（真机验收否决）**：v1 用「静默满 N 秒才定稿」的**纯时间判据**做断句并合并字幕显示。实测发现时间判据**分不开「句间停顿」和「句中思考停顿」**（都 < 2.5s）→ 相邻的完整句子也被粘成一大团，字幕「全凑在一起」。结论：**能按语义断句的只有 LLM 自己**。
+- **v2 职责拆分**（现行为）：
+  - **字幕/统计 = 片段粒度照实**：ASR 每个 final 一段一行立即上屏（高亮/变灰照旧），fullText/本地词库统计同步走——显示层不承担断句、零延迟。
+  - **缓冲层只做 LLM 批次**（`lib/sentence-buffer.js` 不变，UMD + 15 单测 fake clock）：静默满「停顿容忍度」把这段话合并成 utterance 送 AI；interim `noteActivity` 挂起送出计时。
+  - **LLM 语义断句、一句一卡**：prompt（`lib/prompts.js`）收「无标点断续口语合并段」→ 先断句再逐句纠错/翻译，返回 `{sentences:[...]}` / `{cards:[...]}`；结尾未说完的残句不强行纠/翻。解析层 `parseCorrectionBatchResponse/parseTranslationBatchResponse`（13 单测：容错 fence/裸数组/旧版单对象，畸形→null=失败）。渲染：占位卡 `replaceWith(...N 张卡)`，批内保持说话顺序；全干净 →「✓ 很地道」淡出。
 - **配置**：`settings.asr.pauseTolerance` 默认 2.5s，设置页「🎙️ 语音识别」滑块 1-5s；主进程 `ensureAsrDefaults`，钳制逻辑三端共用 `resolveAsrSettings/clampPauseTolerance`。
-- **接线**（`src/app.js`）：A/B 两模式都走缓冲（`commitSentence` 承接原 isFinal 全部下游：纠错/翻译/统计/存档，合并句只计一次）；字幕三态 interim → **pending 行**（同句多段原位合并渲染，#ddd）→ committed（高亮转正）；**跟读武装期间旁路缓冲**（短句快读零延迟），`armShadow` 先 flush（防缓冲残句被误判为跟读），`stopRecording` flush（防丢末句），`clearAll`/切模式 cancel（防迟到定稿）。
-- **取舍**：卡片比原来晚 N 秒出现（有意，N 可调）。
+- **边界**：跟读武装期间旁路缓冲（isFinal 直连 `evaluateShadow` 零延迟）；`armShadow` 先 flush（防未送批次被误判为跟读）；`stopRecording` flush（防末段不出卡）；`clearAll`/切模式 cancel（防迟到送出）。
+- **取舍**：卡片比 v0 晚约 N 秒出现（批次触发器，N 可调）；单批 LLM 调用变大（maxTokens 纠错 1200/翻译 1500），但调用次数减少。
 
 ## AI 后端：Claude 订阅（CLI）—— slice 8
 
