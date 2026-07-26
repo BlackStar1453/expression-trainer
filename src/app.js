@@ -22,7 +22,8 @@ class ExpressionTrainer {
     this.bcards = [];
     this.shadowingEntry = null;   // 正在跟读的卡片
     this.shadowBtn = null;        // 对应的跟读按钮
-    // 定稿缓冲（issue #5）：isFinal 片段先缓冲，静默满「停顿容忍度」才定稿送 AI。
+    // 批次缓冲（issue #5 v2）：字幕/统计按片段即时走，缓冲只负责「静默满
+    // 停顿容忍度后把这段话合并送 AI」——语义断句由 LLM 完成，一句一卡。
     // 每次开始录制时按当前模式/设置重建。
     this.sentenceBuffer = null;
     // 历史标签注册表（跨会话复用，注入纠错 prompt 让 AI 优先复用旧标签）
@@ -124,13 +125,13 @@ class ExpressionTrainer {
     // 开始录制 = 马上会出卡片：顺手预热 TTS 连接（说完第一句时连接已就绪）
     if (window.tts && window.tts.warmup) window.tts.warmup();
 
-    // 定稿缓冲：停顿容忍度来自设置（默认 2.5s）；joiner 按模式（英文空格/中文直拼）
+    // LLM 批次缓冲：停顿容忍度来自设置（默认 2.5s）；joiner 按模式（英文空格/中文直拼）
     const settings = await window.api.getSettings();
     const { pauseTolerance } = window.SentenceBuffer.resolveAsrSettings(settings);
     this.sentenceBuffer = window.SentenceBuffer.createSentenceBuffer({
       holdMs: pauseTolerance * 1000,
       joiner: this.mode === 'A' ? ' ' : '',
-      onCommit: (text) => this.commitSentence(text),
+      onCommit: (text) => this.commitUtterance(text),
     });
 
     try {
@@ -191,7 +192,7 @@ class ExpressionTrainer {
 
   async stopRecording() {
     this.disarmShadow();
-    // 缓冲里还压着没定稿的残句 → 立即定稿（否则最后一句丢失）
+    // 缓冲里还压着没送出的批次 → 立即送 AI（否则最后一段话不出卡）
     if (this.sentenceBuffer) this.sentenceBuffer.flush();
     if (this.audioProcessor) { this.audioProcessor.disconnect(); this.audioProcessor = null; }
     if (this.audioContext) { this.audioContext.close(); this.audioContext = null; }
@@ -232,7 +233,7 @@ class ExpressionTrainer {
       if (isFinal) {
         this.sentences.push(text);
         this.renderCommittedSubtitle(text);
-        this.handleModeBSentence(text);      // 武装中 → 内部走 evaluateShadow
+        this.evaluateShadow(text);
       } else {
         this.renderInterim(text);
       }
@@ -240,30 +241,32 @@ class ExpressionTrainer {
     }
 
     if (isFinal) {
-      // 进定稿缓冲：静默满「停顿容忍度」后 onCommit 定稿；期间新片段合并为同一句
+      // 字幕忠实还原说话节奏：一段一行立即上屏，不合并（v2 决策——显示层不承担断句）
+      this.renderCommittedSubtitle(text);
+      this.sentences.push(text);
+      if (this.mode === 'A') {
+        // 英文按空格拼接，避免句子粘连
+        this.fullText += (this.fullText ? ' ' : '') + text;
+        this.analyzeCurrentSentence(text);   // 本地词库层：统计按片段即时驱动
+      } else {
+        this.stats.totalWords += text.trim().length;
+        this.updateStatsDisplay();
+      }
+      // 缓冲只做 LLM 批次：静默满「停顿容忍度」后把这段话合并送 AI
       this.sentenceBuffer.pushFinal(text);
-      this.renderPendingSubtitle(this.sentenceBuffer.pendingText());
     } else {
-      this.sentenceBuffer.noteActivity();    // 用户又开口了 → 挂起定稿计时
+      this.sentenceBuffer.noteActivity();    // 用户又开口了 → 挂起送出计时
       this.renderInterim(text);
     }
   }
 
-  /** 缓冲定稿回调：合并句从这里进入原「isFinal 即定稿」的全部下游管线 */
-  commitSentence(text) {
-    this.renderCommittedSubtitle(text);
-    this.sentences.push(text);
-    if (this.mode === 'A') {
-      // 英文按空格拼接，避免句子粘连
-      this.fullText += (this.fullText ? ' ' : '') + text;
-      this.analyzeCurrentSentence(text);   // 本地词库层：驱动统计 + 高亮
-      this.requestCorrection(text);        // AI 层：按句纠错卡片
-    } else {
-      this.handleModeBSentence(text);      // Mode B：说中文 → 翻译
-    }
+  /** 批次送出回调：合并段只送 AI（字幕/统计已按片段完成）——LLM 负责语义断句、一句一卡 */
+  commitUtterance(utterance) {
+    if (this.mode === 'A') this.requestCorrection(utterance);
+    else this.requestTranslation(utterance);
   }
 
-  // ===== 字幕渲染：interim（识别中）→ pending（进缓冲待定稿）→ committed（定稿高亮） =====
+  // ===== 字幕渲染：interim（识别中）→ committed（片段即时定稿高亮） =====
 
   renderInterim(text) {
     let interim = this.subtitleContainer.querySelector('.interim-line');
@@ -276,42 +279,18 @@ class ExpressionTrainer {
     this.scrollSubtitles();
   }
 
-  /** 缓冲中的合并句：同一「待定稿」行原位更新——多段合并同一行显示，不再一段一行 */
-  renderPendingSubtitle(text) {
-    const interim = this.subtitleContainer.querySelector('.interim-line');
-    if (interim) interim.remove();
-
-    let pending = this.subtitleContainer.querySelector('.pending-line');
-    if (!pending) {
-      // 新句开始：旧行变灰
-      this.subtitleContainer.querySelectorAll('.subtitle-line:not(.old)').forEach(el => {
-        el.classList.add('old');
-      });
-      pending = document.createElement('div');
-      pending.className = 'subtitle-line pending-line';
-      this.subtitleContainer.appendChild(pending);
-    }
-    pending.textContent = text;
-    this.scrollSubtitles();
-  }
-
-  /** 定稿：待定稿行原位转正（高亮）；无待定稿行时新建（跟读旁路路径） */
+  /** 片段定稿：一段一行立即上屏（高亮），旧行变灰——显示层忠实还原说话节奏 */
   renderCommittedSubtitle(text) {
     const interim = this.subtitleContainer.querySelector('.interim-line');
     if (interim) interim.remove();
 
-    let line = this.subtitleContainer.querySelector('.pending-line');
-    if (line) {
-      line.classList.remove('pending-line');
-    } else {
-      this.subtitleContainer.querySelectorAll('.subtitle-line:not(.old)').forEach(el => {
-        el.classList.add('old');
-      });
-      line = document.createElement('div');
-      line.className = 'subtitle-line';
-      this.subtitleContainer.appendChild(line);
-    }
+    this.subtitleContainer.querySelectorAll('.subtitle-line:not(.old)').forEach(el => {
+      el.classList.add('old');
+    });
+    const line = document.createElement('div');
+    line.className = 'subtitle-line';
     line.innerHTML = this.highlightText(text);
+    this.subtitleContainer.appendChild(line);
     this.scrollSubtitles();
   }
 
@@ -358,42 +337,47 @@ class ExpressionTrainer {
     }
   }
 
-  // ===== Mode A：按句 AI 纠错卡片 =====
+  // ===== Mode A：批次 AI 纠错（LLM 语义断句，一句一卡） =====
 
-  async requestCorrection(sentence) {
-    if (!sentence || !sentence.trim()) return;
+  async requestCorrection(utterance) {
+    if (!utterance || !utterance.trim()) return;
     const existingTags = [...new Set([...this.registryTags, ...this.sessionTags])];
 
-    // 句子送出即出现占位卡（转圈 + 原句），AI 回来后原位收尾——LLM 等待可见化
-    const pending = this._insertPendingCard(sentence, '正在纠错…');
+    // 送出即出现占位卡（转圈 + 原文），AI 回来后原位收尾——LLM 等待可见化
+    const pending = this._insertPendingCard(utterance, '正在纠错…');
     let result = null;
     try {
-      result = await window.api.getSentenceCorrection(sentence, existingTags);
+      result = await window.api.getSentenceCorrection(utterance, existingTags);
     } catch (_) { /* 下面统一走失败收尾 */ }
-    if (!result || !result.success) {
+    if (!result || !result.success || !Array.isArray(result.corrections)) {
       this._resolvePendingCard(pending, '⚠️ 纠错失败，已跳过', false);
       return;
     }
 
-    const c = result.correction;
-    if (!c || !c.hasError) {
-      // 整句地道 → 占位卡变 ✓ 短暂停留后淡出（不留卡刷屏）
-      this._resolvePendingCard(pending, '✓ 这句很地道', true);
+    // LLM 已按语义断句：只给有问题的句子出卡
+    const bad = result.corrections.filter(c => c && c.hasError);
+    if (bad.length === 0) {
+      // 整段地道 → 占位卡变 ✓ 短暂停留后淡出（不留卡刷屏）
+      this._resolvePendingCard(pending, '✓ 很地道', true);
       return;
     }
+    if (!pending.isConnected) return;   // 会话已清空（如切模式）→ 迟到结果直接丢弃
 
-    // 记录标签（生长式：新标签并入本场集合）
-    (c.tags || []).forEach(t => this.sessionTags.add(t));
-
-    const entry = {
-      original: c.original || sentence,
-      corrected: c.corrected || '',
-      explanation: c.explanation || '',
-      tags: c.tags || [],
-      timestamp: Date.now()
-    };
-    this.corrections.push(entry);
-    this.renderCorrectionCard(entry, pending);
+    const cards = bad.map(c => {
+      // 记录标签（生长式：新标签并入本场集合）
+      (c.tags || []).forEach(t => this.sessionTags.add(t));
+      const entry = {
+        original: c.original || utterance,
+        corrected: c.corrected || '',
+        explanation: c.explanation || '',
+        tags: c.tags || [],
+        timestamp: Date.now()
+      };
+      this.corrections.push(entry);
+      return this._buildCorrectionCard(entry);
+    });
+    pending.replaceWith(...cards);   // 批内保持说话顺序（第 1 句在上）
+    this._trimFeedback();
   }
 
   // ===== LLM 等待占位卡 =====
@@ -422,9 +406,8 @@ class ExpressionTrainer {
     }, 1600);
   }
 
-  renderCorrectionCard(entry, pendingEl = null) {
-    // 有占位卡且会话已被清空（如切模式）→ 迟到结果直接丢弃，不复活旧会话内容
-    if (pendingEl && !pendingEl.isConnected) return;
+  /** 构建一张纠错卡（不插入 DOM——批次调用方决定落点） */
+  _buildCorrectionCard(entry) {
     const card = document.createElement('div');
     card.className = 'correction-card';
 
@@ -446,16 +429,17 @@ class ExpressionTrainer {
 
     this._wireSpeakButton(card, '[data-tts="corrected"]', entry.corrected);
 
-    // 有占位卡则原位替换（保持与说话顺序一致的落点），否则按旧逻辑插入
-    if (pendingEl) pendingEl.replaceWith(card);
-    else this.feedbackContent.insertBefore(card, this.feedbackContent.firstChild);
-    while (this.feedbackContent.children.length > 20) {
-      this.feedbackContent.removeChild(this.feedbackContent.lastChild);
-    }
-
     // 卡片一出现就后台预合成（edge 引擎下），点 🔊 时即点即播
     if (window.tts && window.tts.prefetch) {
       window.tts.prefetch(entry.corrected);
+    }
+    return card;
+  }
+
+  /** 右栏卡片数量上限：太多会拖慢渲染，只留最近 20 个 */
+  _trimFeedback() {
+    while (this.feedbackContent.children.length > 20) {
+      this.feedbackContent.removeChild(this.feedbackContent.lastChild);
     }
   }
 
@@ -481,53 +465,44 @@ class ExpressionTrainer {
     }
   }
 
-  // ===== Mode B：说中文 → 地道英文学习卡 =====
+  // ===== Mode B：说中文 → 地道英文学习卡（批次，LLM 断句一句一卡） =====
 
-  handleModeBSentence(sentence) {
-    // 若已武装跟读，这一句视为对目标英文的朗读
-    if (this.shadowingEntry) {
-      this.evaluateShadow(sentence);
-      return;
-    }
-    // 否则视为新的一句中文 → 翻译成学习卡
-    this.stats.totalWords += sentence.trim().length;
-    this.updateStatsDisplay();
-    this.requestTranslation(sentence);
-  }
-
-  async requestTranslation(sentence) {
-    if (!sentence || !sentence.trim()) return;
+  async requestTranslation(utterance) {
+    if (!utterance || !utterance.trim()) return;
     const existingTags = [...new Set([...this.registryTags, ...this.sessionTags])];
 
-    // 与纠错同款：句子送出即出占位卡，翻译回来原位换真卡
-    const pending = this._insertPendingCard(sentence, '正在翻译…');
+    // 与纠错同款：送出即出占位卡，翻译回来原位换真卡
+    const pending = this._insertPendingCard(utterance, '正在翻译…');
     let result = null;
     try {
-      result = await window.api.getTranslation(sentence, existingTags);
+      result = await window.api.getTranslation(utterance, existingTags);
     } catch (_) { /* 下面统一走失败收尾 */ }
-    if (!result || !result.success || !result.card) {
+    if (!result || !result.success || !Array.isArray(result.cards) || result.cards.length === 0) {
       this._resolvePendingCard(pending, '⚠️ 翻译失败，已跳过', false);
       return;
     }
+    if (!pending.isConnected) return;   // 会话已清空（切模式）→ 迟到结果丢弃
 
-    const card = result.card;
-    (card.tags || []).forEach(t => this.sessionTags.add(t));
-
-    const entry = {
-      zh: card.zh || sentence,
-      en: card.en || '',
-      note: card.note || '',
-      tags: card.tags || [],
-      shadow: null,          // 跟读结果（slice 6 填充）
-      timestamp: Date.now()
-    };
-    this.bcards.push(entry);
-    this.renderLearningCard(entry, pending);
+    const els = result.cards.map(card => {
+      (card.tags || []).forEach(t => this.sessionTags.add(t));
+      const entry = {
+        // 多卡时各句 zh 由 LLM 整理；仅单卡缺 zh 才兜底整段原文
+        zh: card.zh || (result.cards.length === 1 ? utterance : ''),
+        en: card.en || '',
+        note: card.note || '',
+        tags: card.tags || [],
+        shadow: null,          // 跟读结果
+        timestamp: Date.now()
+      };
+      this.bcards.push(entry);
+      return this._buildLearningCard(entry);
+    });
+    pending.replaceWith(...els);   // 批内保持说话顺序（第 1 句在上）
+    this._trimFeedback();
   }
 
-  renderLearningCard(entry, pendingEl = null) {
-    // 会话已清空（切模式）→ 迟到结果丢弃
-    if (pendingEl && !pendingEl.isConnected) return;
+  /** 构建一张学习卡（不插入 DOM——批次调用方决定落点） */
+  _buildLearningCard(entry) {
     const card = document.createElement('div');
     card.className = 'learning-card';
 
@@ -556,22 +531,20 @@ class ExpressionTrainer {
     this._wireSpeakButton(card, '[data-tts="en"]', entry.en);
     const btn = card.querySelector('.btn-shadow');
     btn.addEventListener('click', () => this.armShadow(entry, btn));
-    // 有占位卡则原位替换，否则按旧逻辑插入
-    if (pendingEl) pendingEl.replaceWith(card);
-    else this.feedbackContent.insertBefore(card, this.feedbackContent.firstChild);
 
     // 学习卡的地道英文同样预合成，点 🔊 即播
     if (window.tts && window.tts.prefetch) {
       window.tts.prefetch(entry.en);
     }
+    return card;
   }
 
   // ===== 跟读环 =====
 
   armShadow(entry, btn) {
     if (!this.isRecording) { this.showError('请先开始录制，再点跟读'); return; }
-    // 缓冲里若压着未定稿的中文残句，先定稿送翻译——必须在设置 shadowingEntry 之前，
-    // 否则该句 commit 时会被误当成跟读朗读
+    // 缓冲里若压着还没送出的中文批次，先送翻译——必须在设置 shadowingEntry 之前，
+    // 否则这段话送出时会被误当成跟读朗读
     if (this.sentenceBuffer) this.sentenceBuffer.flush();
     // 武装跟读 = 用户马上要对麦克风朗读：停掉进行中的 TTS，免得尾音被当成跟读内容识别
     if (window.tts) window.tts.stop();
@@ -796,7 +769,7 @@ class ExpressionTrainer {
 
   clearAll() {
     if (window.tts) window.tts.stop();   // 停掉可能仍在播放的朗读
-    if (this.sentenceBuffer) this.sentenceBuffer.cancel();   // 丢弃未定稿残句，不再触发迟到定稿
+    if (this.sentenceBuffer) this.sentenceBuffer.cancel();   // 丢弃未送出批次，不再触发迟到送出
     this.fullText = '';
     this.sentences = [];
     this.lastReport = '';

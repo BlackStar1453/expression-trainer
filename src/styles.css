@@ -375,8 +375,6 @@ button, input, select, .subtitle-scroll, .feedback-content, .modal-body {
 .subtitle-line.old { color: #666; font-size: 22px; }
 .subtitle-line.hint { color: #444; font-size: 20px; }
 .subtitle-line.interim-line { color: #aaa; }
-/* 进定稿缓冲、还在等静默窗口的合并句：比 interim 亮、比定稿暗（issue #5） */
-.subtitle-line.pending-line { color: #ddd; }
 
 /* 高亮 */
 .subtitle-line .filler { color: #ff6b6b; text-decoration: underline wavy; }
