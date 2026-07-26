@@ -269,6 +269,7 @@ class ExpressionTrainer {
   // ===== 字幕渲染：interim（识别中）→ committed（片段即时定稿高亮） =====
 
   renderInterim(text) {
+    const follow = this._isNearBottom(this.subtitleScroll);   // DOM 变更前捕获
     let interim = this.subtitleContainer.querySelector('.interim-line');
     if (!interim) {
       interim = document.createElement('div');
@@ -276,11 +277,12 @@ class ExpressionTrainer {
       this.subtitleContainer.appendChild(interim);
     }
     interim.textContent = text;
-    this.scrollSubtitles();
+    if (follow) this.scrollSubtitles();   // 仅当用户本就在底部附近，回看时不打断
   }
 
   /** 片段定稿：一段一行立即上屏（高亮），旧行变灰——显示层忠实还原说话节奏 */
   renderCommittedSubtitle(text) {
+    const follow = this._isNearBottom(this.subtitleScroll);   // DOM 变更前捕获
     const interim = this.subtitleContainer.querySelector('.interim-line');
     if (interim) interim.remove();
 
@@ -291,7 +293,7 @@ class ExpressionTrainer {
     line.className = 'subtitle-line';
     line.innerHTML = this.highlightText(text);
     this.subtitleContainer.appendChild(line);
-    this.scrollSubtitles();
+    if (follow) this.scrollSubtitles();   // 仅当用户本就在底部附近，回看时不打断
   }
 
   scrollSubtitles() {
@@ -376,11 +378,19 @@ class ExpressionTrainer {
       this.corrections.push(entry);
       return this._buildCorrectionCard(entry);
     });
-    pending.replaceWith(...cards);   // 批内保持说话顺序（第 1 句在上）
+    // 原位替换占位卡（追加布局下即最新在底），批内保持说话顺序（第 1 句在上）
+    const follow = this._isNearBottom(this.feedbackContent);
+    pending.replaceWith(...cards);
     this._trimFeedback();
+    if (follow) this.feedbackContent.scrollTop = this.feedbackContent.scrollHeight;
   }
 
   // ===== LLM 等待占位卡 =====
+
+  /** 是否接近底部——仅此时才跟随滚动，用户回看旧内容时不强行拉走视口 */
+  _isNearBottom(el, threshold = 80) {
+    return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+  }
 
   /** 插入一张「转圈占位卡」，返回元素供后续原位替换/收尾 */
   _insertPendingCard(text, label) {
@@ -390,7 +400,10 @@ class ExpressionTrainer {
       <div class="pc-row"><span class="pc-spinner"></span><span class="pc-label">${this.escapeHtml(label)}</span></div>
       <div class="pc-text">${this.escapeHtml(text)}</div>
     `;
-    this.feedbackContent.insertBefore(el, this.feedbackContent.firstChild);
+    // 新卡追加到底部，与字幕出现顺序一致
+    const follow = this._isNearBottom(this.feedbackContent);
+    this.feedbackContent.appendChild(el);
+    if (follow) this.feedbackContent.scrollTop = this.feedbackContent.scrollHeight;
     return el;
   }
 
@@ -439,7 +452,7 @@ class ExpressionTrainer {
   /** 右栏卡片数量上限：太多会拖慢渲染，只留最近 20 个 */
   _trimFeedback() {
     while (this.feedbackContent.children.length > 20) {
-      this.feedbackContent.removeChild(this.feedbackContent.lastChild);
+      this.feedbackContent.removeChild(this.feedbackContent.firstChild); // 追加布局下顶端是最旧
     }
   }
 
@@ -497,8 +510,11 @@ class ExpressionTrainer {
       this.bcards.push(entry);
       return this._buildLearningCard(entry);
     });
-    pending.replaceWith(...els);   // 批内保持说话顺序（第 1 句在上）
+    // 原位替换占位卡（追加布局下即最新在底），批内保持说话顺序（第 1 句在上）
+    const follow = this._isNearBottom(this.feedbackContent);
+    pending.replaceWith(...els);
     this._trimFeedback();
+    if (follow) this.feedbackContent.scrollTop = this.feedbackContent.scrollHeight;
   }
 
   /** 构建一张学习卡（不插入 DOM——批次调用方决定落点） */
