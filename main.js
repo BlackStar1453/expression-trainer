@@ -417,8 +417,10 @@ ipcMain.handle('get-sentence-correction', async (event, { sentence, existingTags
   const settings = loadSettings();
   const providerConfig = getCurrentProviderSettings(settings);
   try {
-    const correction = await sendCorrection(sentence, { ...settings, ...providerConfig }, existingTags || []);
-    return { success: true, correction };
+    // v2（issue #5）：sentence 实为断续口语合并段；LLM 断句后返回逐句数组，null = 解析失败
+    const corrections = await sendCorrection(sentence, { ...settings, ...providerConfig }, existingTags || []);
+    if (!corrections) return { success: false, error: 'AI 返回无法解析' };
+    return { success: true, corrections };
   } catch (error) {
     return { success: false, error: error.message };
   }
@@ -429,8 +431,10 @@ ipcMain.handle('get-translation', async (event, { sentence, existingTags }) => {
   const settings = loadSettings();
   const providerConfig = getCurrentProviderSettings(settings);
   try {
-    const card = await sendTranslation(sentence, { ...settings, ...providerConfig }, existingTags || []);
-    return { success: true, card };
+    // v2（issue #5）：LLM 断句后一句一卡，返回数组；null = 解析失败/无可用卡
+    const cards = await sendTranslation(sentence, { ...settings, ...providerConfig }, existingTags || []);
+    if (!cards) return { success: false, error: 'AI 返回无法解析' };
+    return { success: true, cards };
   } catch (error) {
     return { success: false, error: error.message };
   }
